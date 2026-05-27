@@ -938,11 +938,13 @@ function abrirSeletorMes() {
   abrirModal('modal-mes');
 }
 
-function aplicarMes() {
+async function aplicarMes() {
   mesAtual = parseInt(document.getElementById('sel-mes').value);
   anoAtual = parseInt(document.getElementById('sel-ano').value);
   atualizarHeaderMes();
   fecharModal('modal-mes');
+  // Garante que recorrências do mês selecionado sejam criadas se ainda não existirem
+  await processarRecorrencias();
   navegarPara(paginaAtual);
 }
 
