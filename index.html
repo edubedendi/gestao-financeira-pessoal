@@ -130,10 +130,81 @@
   </div>
 
   <div id="page-lancamentos" class="page">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Lançamentos</h2>
-      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalLancamento()">+ Novo</button>
+      <div style="display:flex;gap:8px;">
+        <button id="btn-toggle-filtros" onclick="toggleFiltros()" style="background:#f1f5f9;color:#374151;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:14px;">🔍 Filtros</button>
+        <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalLancamento()">+ Novo</button>
+      </div>
     </div>
+
+    <!-- Painel de Filtros -->
+    <div id="filtros-panel" class="hidden card" style="padding:14px;margin-bottom:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div>
+          <label>Período</label>
+          <select id="filtro-periodo" onchange="togglePeriodoCustom();renderizarLancamentos()">
+            <option value="mes">Este mês</option>
+            <option value="mes-anterior">Mês anterior</option>
+            <option value="3meses">Últimos 3 meses</option>
+            <option value="ano">Este ano</option>
+            <option value="tudo">Todos</option>
+            <option value="custom">Mês específico</option>
+          </select>
+        </div>
+        <div id="filtro-custom-period" class="hidden">
+          <label>Mês/Ano</label>
+          <input type="month" id="filtro-mes-especifico" onchange="renderizarLancamentos()" />
+        </div>
+        <div>
+          <label>Tipo</label>
+          <select id="filtro-tipo" onchange="renderizarLancamentos()">
+            <option value="">Todos</option>
+            <option value="despesa">Despesas</option>
+            <option value="receita">Receitas</option>
+          </select>
+        </div>
+        <div>
+          <label>Forma de Pagto</label>
+          <select id="filtro-forma" onchange="renderizarLancamentos()">
+            <option value="">Todas</option>
+            <option value="dinheiro">Dinheiro</option>
+            <option value="pix">PIX</option>
+            <option value="debito">Débito</option>
+            <option value="cartao">Cartão</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;gap:10px;margin-bottom:10px;">
+        <div>
+          <label>Categoria</label>
+          <select id="filtro-categoria" onchange="atualizarFiltroSubcategoria();renderizarLancamentos()">
+            <option value="">Todas as categorias</option>
+          </select>
+        </div>
+        <div id="filtro-subcategoria-group" class="hidden">
+          <label>Subcategoria</label>
+          <select id="filtro-subcategoria" onchange="renderizarLancamentos()">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div>
+          <label>Favorecido</label>
+          <select id="filtro-favorecido" onchange="renderizarLancamentos()">
+            <option value="">Todos os favorecidos</option>
+          </select>
+        </div>
+        <div>
+          <label>Buscar na descrição</label>
+          <input type="text" id="filtro-busca" placeholder="Digite para buscar..." oninput="renderizarLancamentos()" />
+        </div>
+      </div>
+      <button onclick="limparFiltros()" style="width:100%;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;padding:8px;font-size:13px;cursor:pointer;">✕ Limpar filtros</button>
+    </div>
+
+    <!-- Resumo dos resultados -->
+    <div id="lancamentos-summary" class="hidden"></div>
+
     <div id="lancamentos-content"><div class="spinner"></div></div>
   </div>
 
@@ -1161,47 +1232,191 @@ async function renderizarDashboard() {
 async function renderizarLancamentos() {
   const el = document.getElementById('lancamentos-content');
   el.innerHTML = '<div class="spinner"></div>';
-  const { data } = await sb.from('lancamentos')
-    .select('*, categorias(nome,icone), cartoes(nome), favorecidos(nome,icone)')
-    .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
-    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`)
-    .order('data', { ascending: false });
 
-  if (!data || data.length === 0) {
+  // Lê valores dos filtros (se painel existe)
+  const periodo    = document.getElementById('filtro-periodo')?.value    || 'mes';
+  const filtroTipo = document.getElementById('filtro-tipo')?.value        || '';
+  const filtroCat  = document.getElementById('filtro-categoria')?.value   || '';
+  const filtroSub  = document.getElementById('filtro-subcategoria')?.value|| '';
+  const filtroFav  = document.getElementById('filtro-favorecido')?.value  || '';
+  const filtroForma= document.getElementById('filtro-forma')?.value       || '';
+  const filtroBusca= (document.getElementById('filtro-busca')?.value || '').toLowerCase().trim();
+
+  let query = sb.from('lancamentos')
+    .select('*, categorias(nome,icone,parent_id), cartoes(nome), favorecidos(nome,icone)');
+
+  // Filtro de período
+  const pad = n => String(n).padStart(2,'0');
+  if (periodo === 'mes') {
+    query = query.gte('data',`${anoAtual}-${pad(mesAtual)}-01`).lte('data',`${anoAtual}-${pad(mesAtual)}-31`);
+  } else if (periodo === 'mes-anterior') {
+    const mA = mesAtual === 1 ? 12 : mesAtual - 1;
+    const aA = mesAtual === 1 ? anoAtual - 1 : anoAtual;
+    query = query.gte('data',`${aA}-${pad(mA)}-01`).lte('data',`${aA}-${pad(mA)}-31`);
+  } else if (periodo === '3meses') {
+    let mI = mesAtual - 2; let aI = anoAtual;
+    if (mI <= 0) { mI += 12; aI--; }
+    query = query.gte('data',`${aI}-${pad(mI)}-01`).lte('data',`${anoAtual}-${pad(mesAtual)}-31`);
+  } else if (periodo === 'ano') {
+    query = query.gte('data',`${anoAtual}-01-01`).lte('data',`${anoAtual}-12-31`);
+  } else if (periodo === 'custom') {
+    const mesEsp = document.getElementById('filtro-mes-especifico')?.value;
+    if (mesEsp) {
+      const [y,m] = mesEsp.split('-');
+      query = query.gte('data',`${y}-${m}-01`).lte('data',`${y}-${m}-31`);
+    }
+  }
+  // 'tudo' = sem filtro de data
+
+  if (filtroTipo)  query = query.eq('tipo', filtroTipo);
+  if (filtroForma) query = query.eq('forma_pagamento', filtroForma);
+  if (filtroFav)   query = query.eq('favorecido_id', filtroFav);
+
+  // Filtro de categoria/subcategoria
+  if (filtroSub) {
+    query = query.eq('categoria_id', filtroSub);
+  } else if (filtroCat) {
+    const ids = [filtroCat, ...categorias.filter(c => c.parent_id === filtroCat).map(c => c.id)];
+    query = query.in('categoria_id', ids);
+  }
+
+  query = query.order('data', { ascending: false }).limit(500);
+  const { data } = await query;
+
+  let lancamentos = data || [];
+
+  // Filtro de texto (client-side)
+  if (filtroBusca) {
+    lancamentos = lancamentos.filter(l => (l.descricao || '').toLowerCase().includes(filtroBusca));
+  }
+
+  // Resumo
+  const summaryEl = document.getElementById('lancamentos-summary');
+  if (summaryEl) {
+    if (lancamentos.length > 0) {
+      const totD = lancamentos.filter(l=>l.tipo==='despesa').reduce((s,l)=>s+Number(l.valor),0);
+      const totR = lancamentos.filter(l=>l.tipo==='receita').reduce((s,l)=>s+Number(l.valor),0);
+      summaryEl.classList.remove('hidden');
+      summaryEl.innerHTML = `<div class="card" style="padding:10px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+        <span style="color:#64748b;">${lancamentos.length} lançamento${lancamentos.length > 1 ? 's' : ''}</span>
+        <span>
+          ${totR > 0 ? `<span class="valor-positivo">+${R$(totR)}</span>` : ''}
+          ${totR > 0 && totD > 0 ? `<span style="color:#cbd5e1;margin:0 4px;">|</span>` : ''}
+          ${totD > 0 ? `<span class="valor-negativo">-${R$(totD)}</span>` : ''}
+          ${totR > 0 && totD > 0 ? `<span style="color:#cbd5e1;margin:0 4px;">|</span><span style="color:${totR-totD>=0?'#059669':'#dc2626'};font-weight:600;">${R$(totR-totD)}</span>` : ''}
+        </span>
+      </div>`;
+    } else {
+      summaryEl.classList.add('hidden');
+    }
+  }
+
+  if (lancamentos.length === 0) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
       <div style="font-size:40px;margin-bottom:12px;">📝</div>
-      <div>Nenhum lançamento este mês.</div>
-      <div style="font-size:13px;margin-top:4px;">Toque em "+ Novo" para adicionar.</div>
+      <div>Nenhum lançamento encontrado.</div>
+      <div style="font-size:13px;margin-top:4px;">${periodo === 'mes' ? 'Toque em "+ Novo" para adicionar.' : 'Tente ajustar os filtros.'}</div>
     </div>`;
     return;
   }
 
   let html = '';
   let dataAnterior = '';
-  data.forEach(l => {
+  lancamentos.forEach(l => {
     if (l.data !== dataAnterior) {
       if (dataAnterior) html += '</div>';
       const dt = new Date(l.data + 'T12:00:00');
-      html += `<div style="font-size:12px;color:#94a3b8;font-weight:600;margin:16px 0 8px;">${dt.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'}).toUpperCase()}</div><div class="card">`;
+      const fmt = periodo === 'mes' || periodo === 'mes-anterior'
+        ? dt.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'}).toUpperCase()
+        : dt.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short',year:'2-digit'}).toUpperCase();
+      html += `<div style="font-size:12px;color:#94a3b8;font-weight:600;margin:16px 0 8px;">${fmt}</div><div class="card">`;
       dataAnterior = l.data;
     }
     const icone = l.categorias?.icone || (l.tipo === 'receita' ? '💰' : '💸');
+    const catNome = l.categorias?.nome || 'Sem categoria';
     html += `
       <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;">
         <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
           <div style="font-size:22px;">${icone}</div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</div>
-            <div style="font-size:12px;color:#94a3b8;">${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' • ' + l.favorecidos.nome : ''}${l.cartoes ? ' • ' + l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' • 🔁' : ''}</div>
+            <div style="font-size:12px;color:#94a3b8;">${catNome}${l.favorecidos ? ' • '+l.favorecidos.nome : ''}${l.cartoes ? ' • '+l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' 🔁' : ''}</div>
           </div>
         </div>
-        <div class="${l.tipo === 'receita' ? 'valor-positivo' : 'valor-negativo'}" style="font-size:15px;white-space:nowrap;margin-left:8px;">
-          ${l.tipo === 'receita' ? '+' : '-'} ${R$(l.valor)}
+        <div class="${l.tipo==='receita'?'valor-positivo':'valor-negativo'}" style="font-size:15px;white-space:nowrap;margin-left:8px;">
+          ${l.tipo==='receita' ? '+' : '-'} ${R$(l.valor)}
         </div>
       </div>`;
   });
   if (dataAnterior) html += '</div>';
   el.innerHTML = html;
+}
+
+// ============================================================
+// FILTROS DE LANÇAMENTOS
+// ============================================================
+function toggleFiltros() {
+  const panel = document.getElementById('filtros-panel');
+  const btn = document.getElementById('btn-toggle-filtros');
+  const aberto = panel.classList.toggle('hidden');
+  btn.style.background = aberto ? '#f1f5f9' : '#ede9fe';
+  btn.style.color = aberto ? '#374151' : '#6d28d9';
+  if (!panel.classList.contains('hidden')) {
+    // Popula selects de categoria e favorecido ao abrir
+    const catSel = document.getElementById('filtro-categoria');
+    const catAtual = catSel.value;
+    catSel.innerHTML = '<option value="">Todas as categorias</option>';
+    categorias.filter(c => !c.parent_id).forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = (c.icone||'📁')+' '+c.nome;
+      if (c.id === catAtual) o.selected = true;
+      catSel.appendChild(o);
+    });
+    const favSel = document.getElementById('filtro-favorecido');
+    const favAtual = favSel.value;
+    favSel.innerHTML = '<option value="">Todos os favorecidos</option>';
+    favorecidos.forEach(f => {
+      const o = document.createElement('option');
+      o.value = f.id; o.textContent = f.nome;
+      if (f.id === favAtual) o.selected = true;
+      favSel.appendChild(o);
+    });
+  }
+}
+
+function togglePeriodoCustom() {
+  const v = document.getElementById('filtro-periodo').value;
+  document.getElementById('filtro-custom-period').classList.toggle('hidden', v !== 'custom');
+}
+
+function atualizarFiltroSubcategoria() {
+  const catId = document.getElementById('filtro-categoria').value;
+  const group = document.getElementById('filtro-subcategoria-group');
+  const sel = document.getElementById('filtro-subcategoria');
+  sel.innerHTML = '<option value="">Todas</option>';
+  if (!catId) { group.classList.add('hidden'); return; }
+  const subs = categorias.filter(c => c.parent_id === catId);
+  if (subs.length === 0) { group.classList.add('hidden'); return; }
+  subs.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.id; o.textContent = (s.icone||'📁')+' '+s.nome;
+    sel.appendChild(o);
+  });
+  group.classList.remove('hidden');
+}
+
+function limparFiltros() {
+  document.getElementById('filtro-periodo').value = 'mes';
+  document.getElementById('filtro-tipo').value = '';
+  document.getElementById('filtro-forma').value = '';
+  document.getElementById('filtro-categoria').value = '';
+  document.getElementById('filtro-subcategoria').value = '';
+  document.getElementById('filtro-subcategoria-group').classList.add('hidden');
+  document.getElementById('filtro-favorecido').value = '';
+  document.getElementById('filtro-busca').value = '';
+  document.getElementById('filtro-custom-period').classList.add('hidden');
+  document.getElementById('lancamentos-summary').classList.add('hidden');
+  renderizarLancamentos();
 }
 
 function abrirModalLancamento() {
@@ -1317,6 +1532,11 @@ function calcularFatura() {
   }
   aviso.style.display = 'block';
   aviso.textContent = `📅 Cai na fatura de ${meses[mesFatura-1]} ${anoFatura} (fechamento dia ${diaFecha})`;
+  // Auto-preenche o campo "1ª Parcela em" com o mês calculado da fatura
+  const campo1aParcela = document.getElementById('lanc-1a-parcela');
+  if (campo1aParcela && !campo1aParcela.value) {
+    campo1aParcela.value = `${anoFatura}-${String(mesFatura).padStart(2,'0')}`;
+  }
 }
 
 function toggleObs() {
@@ -1401,13 +1621,18 @@ async function salvarLancamento() {
     const grupoId = crypto.randomUUID();
     const valorParcela = valor / parcelas;
     const inserts = [];
+    const uid = (await sb.auth.getUser()).data.user.id;
     for (let i = 0; i < parcelas; i++) {
-      const d = new Date(anoP, mesP - 1 + i, 15);
+      // Calcula mês/ano corretos sem usar toISOString() para evitar bug de fuso horário
+      const totalMes = (mesP - 1) + i;
+      const anoParc = anoP + Math.floor(totalMes / 12);
+      const mesParc = (totalMes % 12) + 1;
+      const dataParc = `${anoParc}-${String(mesParc).padStart(2,'0')}-15`;
       inserts.push({
-        user_id: (await sb.auth.getUser()).data.user.id,
+        user_id: uid,
         descricao: `${desc} (${i+1}/${parcelas})`,
         valor: valorParcela,
-        data: d.toISOString().split('T')[0],
+        data: dataParc,
         tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs,
         parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: grupoId
       });
@@ -2149,208 +2374,4 @@ async function renderizarConfig() {
           ${subs.map(s => `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;">
               <span style="font-size:14px;color:#374151;">${s.icone||'📁'} ${s.nome}</span>
-              <button onclick="editarCategoria('${s.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
-            </div>`).join('')}
-        </div>` : ''}
-      </div>`;
-  }).join('');
-
-  el.innerHTML = `
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <div style="font-weight:700;font-size:15px;">💸 Despesas</div>
-        <button onclick="abrirModalCategoria('despesa')" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Categoria</button>
-      </div>
-      ${despesas.length ? renderArvore(despesas) : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma categoria ainda.</div>'}
-    </div>
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <div style="font-weight:700;font-size:15px;">💰 Receitas</div>
-        <button onclick="abrirModalCategoria('receita')" style="background:#059669;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Categoria</button>
-      </div>
-      ${receitas.length ? renderArvore(receitas) : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma categoria ainda.</div>'}
-    </div>
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-      <div style="font-weight:700;font-size:15px;margin-bottom:12px;">🔁 Recorrências ativas</div>
-      ${recorrencias.length ? recorrencias.map(r => {
-        const nome = r.favorecidos?.nome || r.categorias?.nome || 'Sem nome';
-        const icone = r.categorias?.icone || '🔁';
-        const forma = r.forma_pagamento === 'cartao' ? (r.cartoes?.nome || 'Cartão') : r.forma_pagamento;
-        return `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9;">
-          <div>
-            <div style="font-weight:600;font-size:14px;">${icone} ${nome}</div>
-            <div style="font-size:12px;color:#94a3b8;">R$ ${Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})} • dia ${r.dia_do_mes} • ${forma}</div>
-          </div>
-          <button onclick="desativarRecorrencia('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Cancelar</button>
-        </div>`;
-      }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma recorrência ativa. Marque "Repete todo mês" ao criar um lançamento.</div>'}
-    </div>
-    <div class="card" style="padding:16px;margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <div style="font-weight:700;font-size:15px;">👥 Favorecidos</div>
-        <button onclick="abrirModalFavorecido()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Favorecido</button>
-      </div>
-      ${favorecidos.length ? favorecidos.map(f => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;">
-          <span style="font-size:14px;">${f.nome}</span>
-          <button onclick="abrirModalFavorecido('${f.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
-        </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum favorecido ainda. Exemplos: Vivo, Energisa, Condomínio...</div>'}
-    </div>
-    <div class="card" style="padding:16px;">
-      <button onclick="fazerLogout()" class="btn-danger" style="width:100%;text-align:left;">🚪 Sair da conta</button>
-    </div>`;
-}
-
-function abrirModalCategoriaRapido() {
-  // Abre o modal de categoria a partir do modal de lançamento
-  const tipoLanc = getTipoLancamento(); // usa o tipo (despesa/receita) já selecionado no lançamento
-  window._catModoRapido = true;
-  abrirModalCategoria(tipoLanc);
-}
-
-function abrirModalCategoria(tipoDefault = 'despesa') {
-  document.getElementById('cat-id').value = '';
-  document.getElementById('modal-cat-titulo').textContent = 'Nova Categoria';
-  document.getElementById('cat-nome').value = '';
-  document.getElementById('cat-icone').value = '📁';
-  document.getElementById('cat-icone-preview').textContent = '📁';
-  document.getElementById('cat-btn-excluir').classList.add('hidden');
-  document.getElementById('cat-tipo-group').classList.remove('hidden');
-  document.getElementById('cat-parent-group').classList.add('hidden');
-  setCatTipo(tipoDefault);
-  abrirModal('modal-categoria');
-}
-
-function abrirNovaSubcategoria(parentId, tipo) {
-  document.getElementById('cat-id').value = '';
-  document.getElementById('modal-cat-titulo').textContent = 'Nova Subcategoria';
-  document.getElementById('cat-nome').value = '';
-  document.getElementById('cat-icone').value = '📁';
-  document.getElementById('cat-icone-preview').textContent = '📁';
-  document.getElementById('cat-btn-excluir').classList.add('hidden');
-  document.getElementById('cat-tipo-group').classList.add('hidden');
-  document.getElementById('cat-tipo').value = tipo;
-  // Monta select de categorias pai
-  const parentGroup = document.getElementById('cat-parent-group');
-  parentGroup.classList.remove('hidden');
-  const sel = document.getElementById('cat-parent');
-  const pais = categorias.filter(c => c.tipo === tipo && !c.parent_id);
-  if (pais.length === 0) {
-    toast('Crie uma categoria de ' + (tipo==='despesa'?'despesa':'receita') + ' primeiro!', 'erro');
-    return;
-  }
-  sel.innerHTML = '<option value="">Selecione a categoria...</option>';
-  pais.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id;
-    opt.textContent = (c.icone||'📁') + ' ' + c.nome;
-    sel.appendChild(opt);
-  });
-  if (parentId) sel.value = parentId;
-  renderEmojiGrid(tipo, '📁');
-  abrirModal('modal-categoria');
-}
-
-async function editarCategoria(id) {
-  const c = categorias.find(x => x.id === id);
-  if (!c) return;
-  document.getElementById('cat-id').value = id;
-  document.getElementById('modal-cat-titulo').textContent = 'Editar ' + (c.parent_id ? 'Subcategoria' : 'Categoria');
-  document.getElementById('cat-nome').value = c.nome;
-  document.getElementById('cat-tipo').value = c.tipo;
-  const icone = c.icone || '📁';
-  document.getElementById('cat-icone').value = icone;
-  document.getElementById('cat-icone-preview').textContent = icone;
-  document.getElementById('cat-btn-excluir').classList.remove('hidden');
-  if (c.parent_id) {
-    // É subcategoria: mostra seletor de pai, esconde tipo
-    document.getElementById('cat-tipo-group').classList.add('hidden');
-    const parentGroup = document.getElementById('cat-parent-group');
-    parentGroup.classList.remove('hidden');
-    const sel = document.getElementById('cat-parent');
-    sel.innerHTML = '';
-    categorias.filter(x => x.tipo === c.tipo && !x.parent_id).forEach(x => {
-      const opt = document.createElement('option');
-      opt.value = x.id;
-      opt.textContent = (x.icone||'📁') + ' ' + x.nome;
-      if (x.id === c.parent_id) opt.selected = true;
-      sel.appendChild(opt);
-    });
-  } else {
-    // É categoria principal: mostra tipo, esconde pai
-    document.getElementById('cat-tipo-group').classList.remove('hidden');
-    document.getElementById('cat-parent-group').classList.add('hidden');
-    setCatTipo(c.tipo);
-  }
-  renderEmojiGrid(c.tipo, icone);
-  abrirModal('modal-categoria');
-}
-
-async function salvarCategoria() {
-  const nome = document.getElementById('cat-nome').value.trim();
-  const tipo = document.getElementById('cat-tipo').value;
-  const icone = document.getElementById('cat-icone').value || '📁';
-  const parentId = document.getElementById('cat-parent-group').classList.contains('hidden')
-    ? null
-    : (document.getElementById('cat-parent').value || null);
-  if (!nome) { toast('Informe o nome', 'erro'); return; }
-  if (!document.getElementById('cat-parent-group').classList.contains('hidden') && !parentId) {
-    toast('Selecione a categoria', 'erro'); return;
-  }
-  const uid = (await sb.auth.getUser()).data.user.id;
-  const id = document.getElementById('cat-id').value;
-  if (id) {
-    await sb.from('categorias').update({ nome, tipo, icone, parent_id: parentId }).eq('id', id);
-    toast('Salvo!', 'ok');
-  } else {
-    const { data: nova } = await sb.from('categorias').insert({ user_id: uid, nome, tipo, icone, parent_id: parentId }).select().single();
-    toast('Criado!', 'ok');
-    await carregarCategorias();
-    // Se foi chamado pelo atalho do modal de lançamento, seleciona a categoria nova automaticamente
-    if (window._catModoRapido && nova) {
-      const tipoLanc = getTipoLancamento();
-      popularSelectCategorias('lanc-categoria', tipoLanc);
-      if (!parentId) {
-        document.getElementById('lanc-categoria').value = nova.id;
-        atualizarSubcategorias();
-      } else {
-        // É subcategoria: seleciona o pai e depois a sub
-        document.getElementById('lanc-categoria').value = parentId;
-        atualizarSubcategorias();
-        setTimeout(() => { document.getElementById('lanc-subcategoria').value = nova.id; }, 50);
-      }
-      window._catModoRapido = false;
-      fecharModal('modal-categoria');
-      return;
-    }
-  }
-  await carregarCategorias();
-  fecharModal('modal-categoria');
-  if (paginaAtual === 'config') renderizarConfig();
-}
-
-async function excluirCategoria() {
-  const id = document.getElementById('cat-id').value;
-  const c = categorias.find(x => x.id === id);
-  const subs = categorias.filter(x => x.parent_id === id);
-  const msg = subs.length > 0
-    ? `Excluir "${c?.nome}" e suas ${subs.length} subcategoria(s)?`
-    : `Excluir "${c?.nome}"?`;
-  if (!confirm(msg)) return;
-  await sb.from('categorias').delete().eq('id', id);
-  toast('Excluído!', 'ok');
-  await carregarCategorias();
-  fecharModal('modal-categoria');
-  renderizarConfig();
-}
-
-// Adicionar aba Config na navegação via clique no holerite (workaround elegante)
-// O holerite já está na nav; configurações ficam acessíveis pelo dashboard (ícone de engrenagem)
-// Adicionar botão de config no header
-document.addEventListener('DOMContentLoaded', () => {
-  // Já inicializa via onAuthStateChange
-});
-</script>
-</body>
-</html>
+              <button onclick="editarCategoria('${s.id}')" style="backgr
