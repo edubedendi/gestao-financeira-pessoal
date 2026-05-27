@@ -364,6 +364,21 @@
             <input type="month" id="lanc-1a-parcela" />
           </div>
         </div>
+        <!-- Toggle tipo de valor: aparece só quando parcelas > 1 -->
+        <div id="lanc-tipo-valor-group" class="hidden" style="margin-top:10px;">
+          <label style="margin-bottom:6px;">O valor acima é:</label>
+          <div style="display:flex;gap:8px;">
+            <button type="button" id="btn-tipo-valor-total" onclick="setTipoValorParcela('total')"
+              style="flex:1;padding:8px;font-size:13px;border-radius:8px;border:2px solid #4f46e5;background:#ede9fe;color:#4f46e5;cursor:pointer;font-weight:600;">
+              Valor total
+            </button>
+            <button type="button" id="btn-tipo-valor-parcela" onclick="setTipoValorParcela('parcela')"
+              style="flex:1;padding:8px;font-size:13px;border-radius:8px;border:2px solid #e2e8f0;background:white;color:#64748b;cursor:pointer;">
+              Valor da parcela
+            </button>
+          </div>
+          <div id="lanc-valor-preview" style="font-size:12px;color:#6d28d9;margin-top:6px;background:#ede9fe;border-radius:6px;padding:5px 10px;display:none;"></div>
+        </div>
       </div>
 
       <!-- Recorrente -->
@@ -737,6 +752,11 @@ let appInicializado = false; // Guard contra múltiplas inicializações
 // UTILITÁRIOS
 // ============================================================
 const R$ = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Retorna o último dia real do mês (ex: junho → 30, fevereiro → 28/29)
+function ultimoDiaDoMes(ano, mes) {
+  return new Date(ano, mes, 0).getDate();
+}
 const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 // Timeout para queries do Supabase (30 segundos - servidor nos EUA pode demorar)
@@ -1004,7 +1024,7 @@ async function processarRecorrencias() {
   const uid = (await sb.auth.getUser()).data.user.id;
   const mesStr = String(mesAtual).padStart(2, '0');
   const inicioMes = `${anoAtual}-${mesStr}-01`;
-  const fimMes = `${anoAtual}-${mesStr}-31`;
+  const fimMes = `${anoAtual}-${mesStr}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
   // Busca lançamentos deste mês que já vieram de recorrência
   const { data: jaExistem } = await sb.from('lancamentos')
@@ -1107,7 +1127,7 @@ async function renderizarDashboard() {
     sb.from('lancamentos')
       .select('*, categorias(nome,tipo)')
       .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
-      .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`)
+      .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`)
   );
 
   if (errLanc) throw errLanc;
@@ -1142,7 +1162,7 @@ async function renderizarDashboard() {
       .select('*, cartoes(nome,dia_vencimento)')
       .eq('tipo', 'despesa').not('cartao_id', 'is', null)
       .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
-      .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`)
+      .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`)
   );
 
   const totalCartoes = (faturas || []).reduce((s, l) => s + Number(l.valor), 0);
@@ -1242,17 +1262,21 @@ async function renderizarLancamentos() {
   let dataInicio, dataFim;
   const hoje = new Date();
   if (periodo === 'mes') {
+    const ult = ultimoDiaDoMes(anoAtual, mesAtual);
     dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
-    dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`;
+    dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ult).padStart(2,'0')}`;
   } else if (periodo === 'mes_anterior') {
     let m = mesAtual - 1, a = anoAtual;
     if (m < 1) { m = 12; a--; }
+    const ult = ultimoDiaDoMes(a, m);
     dataInicio = `${a}-${String(m).padStart(2,'0')}-01`;
-    dataFim = `${a}-${String(m).padStart(2,'0')}-31`;
+    dataFim = `${a}-${String(m).padStart(2,'0')}-${String(ult).padStart(2,'0')}`;
   } else if (periodo === '3meses') {
     const ini = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1);
     dataInicio = `${ini.getFullYear()}-${String(ini.getMonth()+1).padStart(2,'0')}-01`;
-    dataFim = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-31`;
+    const mesHoje = hoje.getMonth() + 1;
+    const ultHoje = ultimoDiaDoMes(hoje.getFullYear(), mesHoje);
+    dataFim = `${hoje.getFullYear()}-${String(mesHoje).padStart(2,'0')}-${String(ultHoje).padStart(2,'0')}`;
   } else if (periodo === 'ano') {
     dataInicio = `${anoAtual}-01-01`;
     dataFim = `${anoAtual}-12-31`;
@@ -1425,6 +1449,9 @@ function abrirModalLancamento() {
   document.getElementById('lanc-recorrente').checked = false;
   document.getElementById('lanc-parcelas').value = 1;
   document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
+  document.getElementById('lanc-tipo-valor-group').classList.add('hidden');
+  document.getElementById('lanc-valor-preview').style.display = 'none';
+  setTipoValorParcela('total');
   document.getElementById('lanc-btn-excluir').classList.add('hidden');
   setTipoLancamento('despesa');
   popularSelectCartoes();
@@ -1543,7 +1570,60 @@ function toggleObs() {
 
 function toggleParcelaFields() {
   const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
-  document.getElementById('lanc-1a-parcela-group').classList.toggle('hidden', n <= 1);
+  const mostrar = n > 1;
+  document.getElementById('lanc-1a-parcela-group').classList.toggle('hidden', !mostrar);
+  document.getElementById('lanc-tipo-valor-group').classList.toggle('hidden', !mostrar);
+  atualizarPreviewValorParcela();
+}
+
+function setTipoValorParcela(tipo) {
+  // tipo: 'total' ou 'parcela'
+  const btnTotal = document.getElementById('btn-tipo-valor-total');
+  const btnParcela = document.getElementById('btn-tipo-valor-parcela');
+  if (tipo === 'total') {
+    btnTotal.style.borderColor = '#4f46e5';
+    btnTotal.style.background = '#ede9fe';
+    btnTotal.style.color = '#4f46e5';
+    btnTotal.style.fontWeight = '600';
+    btnParcela.style.borderColor = '#e2e8f0';
+    btnParcela.style.background = 'white';
+    btnParcela.style.color = '#64748b';
+    btnParcela.style.fontWeight = 'normal';
+  } else {
+    btnParcela.style.borderColor = '#4f46e5';
+    btnParcela.style.background = '#ede9fe';
+    btnParcela.style.color = '#4f46e5';
+    btnParcela.style.fontWeight = '600';
+    btnTotal.style.borderColor = '#e2e8f0';
+    btnTotal.style.background = 'white';
+    btnTotal.style.color = '#64748b';
+    btnTotal.style.fontWeight = 'normal';
+  }
+  document.getElementById('btn-tipo-valor-total').dataset.ativo = tipo === 'total' ? '1' : '';
+  document.getElementById('btn-tipo-valor-parcela').dataset.ativo = tipo === 'parcela' ? '1' : '';
+  atualizarPreviewValorParcela();
+}
+
+function getTipoValorParcela() {
+  // Retorna 'total' ou 'parcela'
+  return document.getElementById('btn-tipo-valor-parcela').dataset.ativo === '1' ? 'parcela' : 'total';
+}
+
+function atualizarPreviewValorParcela() {
+  const preview = document.getElementById('lanc-valor-preview');
+  if (!preview) return;
+  const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
+  const valor = parseFloat(document.getElementById('lanc-valor').value) || 0;
+  if (n <= 1 || valor <= 0) { preview.style.display = 'none'; return; }
+  const tipo = getTipoValorParcela();
+  if (tipo === 'total') {
+    const vParc = Math.round(valor / n * 100) / 100;
+    preview.textContent = `→ ${n}× de ${R$(vParc)}`;
+  } else {
+    const vTotal = Math.round(valor * n * 100) / 100;
+    preview.textContent = `→ Total: ${R$(vTotal)}`;
+  }
+  preview.style.display = 'block';
 }
 
 function popularSelectCartoes() {
@@ -1556,7 +1636,9 @@ function popularSelectCartoes() {
     sel.appendChild(opt);
   });
   sel.onchange = calcularFatura;
-  document.getElementById('lanc-data').addEventListener('change', calcularFatura);
+  // Usa onchange (substitui listener anterior) em vez de addEventListener para evitar duplicatas
+  document.getElementById('lanc-data').onchange = calcularFatura;
+  document.getElementById('lanc-valor').oninput = atualizarPreviewValorParcela;
 }
 
 async function salvarLancamento() {
@@ -1613,7 +1695,15 @@ async function salvarLancamento() {
     if (!mesInicio) { toast('Informe o mês da 1ª parcela', 'erro'); return; }
     const [anoP, mesP] = mesInicio.split('-').map(Number);
     const grupoId = crypto.randomUUID();
-    const valorParcela = valor / parcelas;
+    // Arredonda cada parcela para 2 casas decimais; a última absorve o centavo restante
+    const tipoValor = getTipoValorParcela();
+    const valorParcelaBase = tipoValor === 'parcela'
+      ? Math.round(valor * 100) / 100
+      : Math.round(valor / parcelas * 100) / 100;
+    const valorTotal = tipoValor === 'parcela'
+      ? Math.round(valor * parcelas * 100) / 100
+      : Math.round(valor * 100) / 100;
+    const valorUltimaParcela = Math.round((valorTotal - valorParcelaBase * (parcelas - 1)) * 100) / 100;
     const inserts = [];
     const uid = (await sb.auth.getUser()).data.user.id;
     for (let i = 0; i < parcelas; i++) {
@@ -1621,6 +1711,7 @@ async function salvarLancamento() {
       const anoParc = anoP + Math.floor(totalMes / 12);
       const mesParc = (totalMes % 12) + 1;
       const dataParc = `${anoParc}-${String(mesParc).padStart(2,'0')}-15`;
+      const valorParcela = (i === parcelas - 1) ? valorUltimaParcela : valorParcelaBase;
       inserts.push({
         user_id: uid,
         descricao: `${desc} (${i+1}/${parcelas})`,
@@ -1794,7 +1885,7 @@ async function renderizarOrcamento() {
     .select('valor,categoria_id')
     .eq('tipo', 'despesa')
     .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
-    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`);
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`);
 
   if (!orc || orc.length === 0) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
@@ -1907,7 +1998,7 @@ async function renderizarCartoes() {
   const { data: lanc } = await sb.from('lancamentos')
     .select('valor,cartao_id').eq('tipo','despesa').not('cartao_id','is',null)
     .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
-    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`);
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`);
 
   const fatPorCartao = {};
   (lanc || []).forEach(l => {
@@ -2157,7 +2248,7 @@ async function renderizarPoupanca() {
   const percPoupa = configPoupa?.percentual || 0;
   const { data: lanc } = await sb.from('lancamentos').select('valor').eq('tipo','receita')
     .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
-    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`);
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`);
   const totalReceitas = (lanc||[]).reduce((s,l)=>s+Number(l.valor),0);
   const metaMensal = totalReceitas * (percPoupa / 100);
 
