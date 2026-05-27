@@ -706,6 +706,43 @@
   </div>
 </div>
 
+<!-- Modal Fatura Detalhada -->
+<div id="modal-fatura" class="modal-overlay hidden">
+  <div class="modal-box" style="max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">💳 Fatura Detalhada</h3>
+      <button onclick="fecharModal('modal-fatura')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <!-- Seletores -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;align-items:end;">
+      <div>
+        <label>Cartão</label>
+        <select id="fatura-cartao-sel" onchange="carregarFaturaDetalhada()"></select>
+      </div>
+      <div>
+        <label>Mês</label>
+        <select id="fatura-mes-sel" onchange="carregarFaturaDetalhada()">
+          <option value="1">Jan</option><option value="2">Fev</option><option value="3">Mar</option>
+          <option value="4">Abr</option><option value="5">Mai</option><option value="6">Jun</option>
+          <option value="7">Jul</option><option value="8">Ago</option><option value="9">Set</option>
+          <option value="10">Out</option><option value="11">Nov</option><option value="12">Dez</option>
+        </select>
+      </div>
+      <div>
+        <label>Ano</label>
+        <input type="number" id="fatura-ano-sel" value="2026" min="2020" max="2099" onchange="carregarFaturaDetalhada()" style="padding:10px 8px;" />
+      </div>
+    </div>
+    <!-- Total -->
+    <div id="fatura-total-box" style="background:#fff1f2;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:14px;color:#64748b;font-weight:500;">Total da fatura</span>
+      <span id="fatura-total-val" style="font-size:22px;font-weight:700;color:#dc2626;">R$ 0,00</span>
+    </div>
+    <!-- Tabela -->
+    <div id="fatura-lista"></div>
+  </div>
+</div>
+
 <!-- Modal Meta Poupança Mensal -->
 <div id="modal-perc-poupanca" class="modal-overlay hidden">
   <div class="modal-box">
@@ -2017,7 +2054,10 @@ async function renderizarCartoes() {
             <div style="font-weight:700;font-size:16px;">💳 ${c.nome}</div>
             <div style="font-size:12px;color:#94a3b8;">${c.bandeira} • Fecha dia ${c.dia_fechamento} • Vence dia ${c.dia_vencimento}</div>
           </div>
-          <button onclick="editarCartao('${c.id}')" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
+          <div style="display:flex;gap:6px;">
+            <button onclick="abrirFaturaDetalhada('${c.id}')" style="background:#ede9fe;color:#4f46e5;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">📄 Fatura</button>
+            <button onclick="editarCartao('${c.id}')" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:12px;">
           <div><div style="font-size:11px;color:#64748b;">Fatura</div><div style="font-weight:700;color:#dc2626;">${R$(fatura)}</div></div>
@@ -2076,6 +2116,86 @@ async function salvarCartao() {
   await carregarCartoes();
   fecharModal('modal-cartao');
   renderizarCartoes();
+}
+
+function abrirFaturaDetalhada(cartaoId) {
+  // Popular select de cartões
+  const sel = document.getElementById('fatura-cartao-sel');
+  sel.innerHTML = cartoes.map(c => `<option value="${c.id}" ${c.id === cartaoId ? 'selected' : ''}>${c.nome}</option>`).join('');
+  // Mês e ano atuais
+  document.getElementById('fatura-mes-sel').value = mesAtual;
+  document.getElementById('fatura-ano-sel').value = anoAtual;
+  abrirModal('modal-fatura');
+  carregarFaturaDetalhada();
+}
+
+async function carregarFaturaDetalhada() {
+  const cartaoId = document.getElementById('fatura-cartao-sel').value;
+  const mes = parseInt(document.getElementById('fatura-mes-sel').value);
+  const ano = parseInt(document.getElementById('fatura-ano-sel').value);
+  const ult = ultimoDiaDoMes(ano, mes);
+  const dataIni = `${ano}-${String(mes).padStart(2,'0')}-01`;
+  const dataFim = `${ano}-${String(mes).padStart(2,'0')}-${String(ult).padStart(2,'0')}`;
+
+  const listaEl = document.getElementById('fatura-lista');
+  listaEl.innerHTML = '<div class="spinner"></div>';
+
+  const { data } = await sb.from('lancamentos')
+    .select('*, categorias(nome, parent_id), favorecidos(nome)')
+    .eq('cartao_id', cartaoId)
+    .eq('tipo', 'despesa')
+    .gte('data', dataIni)
+    .lte('data', dataFim)
+    .order('data', { ascending: true });
+
+  const lancamentos = data || [];
+  const total = lancamentos.reduce((s, l) => s + Number(l.valor), 0);
+  document.getElementById('fatura-total-val').textContent = R$(total);
+
+  if (lancamentos.length === 0) {
+    listaEl.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;">Nenhum lançamento neste mês.</div>`;
+    return;
+  }
+
+  // Monta tabela
+  // Para cada lançamento, busca nome da categoria pai se for subcategoria
+  const catMap = {};
+  categorias.forEach(c => { catMap[c.id] = c; });
+
+  let rows = lancamentos.map(l => {
+    const cat = catMap[l.categoria_id];
+    let catNome = '', subNome = '';
+    if (cat) {
+      if (cat.parent_id) {
+        subNome = cat.nome;
+        catNome = catMap[cat.parent_id]?.nome || '';
+      } else {
+        catNome = cat.nome;
+      }
+    }
+    const fav = l.favorecidos?.nome || '—';
+    const obs = l.observacao || '';
+    const parcInfo = l.total_parcelas > 1 ? ` (${l.parcela_atual}/${l.total_parcelas})` : '';
+    return `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:start;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#374151;">${catNome}</div>
+          ${subNome ? `<div style="font-size:11px;color:#94a3b8;">${subNome}</div>` : ''}
+        </div>
+        <div style="font-size:13px;color:#374151;">${fav}${parcInfo}</div>
+        <div style="font-size:13px;color:#94a3b8;font-size:12px;">${obs}</div>
+        <div style="font-size:14px;font-weight:700;color:#dc2626;text-align:right;white-space:nowrap;">${R$(l.valor)}</div>
+      </div>`;
+  }).join('');
+
+  listaEl.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;padding:6px 0 8px;border-bottom:2px solid #e2e8f0;margin-bottom:2px;">
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Categoria</div>
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Favorecido</div>
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Obs</div>
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;text-align:right;">Valor</div>
+    </div>
+    ${rows}`;
 }
 
 async function excluirCartao() {
