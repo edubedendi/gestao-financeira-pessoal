@@ -1,0 +1,2356 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finanças Pessoais</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f1f5f9; }
+    .nav-item.active { background: #4f46e5; color: white; }
+    .nav-item { color: #64748b; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .btn-primary { background: #4f46e5; color: white; border-radius: 8px; padding: 10px 20px; border: none; cursor: pointer; font-size: 15px; width: 100%; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-secondary { background: #f1f5f9; color: #374151; border-radius: 8px; padding: 10px 20px; border: none; cursor: pointer; font-size: 15px; }
+    .btn-danger { background: #fee2e2; color: #dc2626; border-radius: 8px; padding: 8px 16px; border: none; cursor: pointer; font-size: 14px; }
+    .btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 6px; border: none; cursor: pointer; }
+    input, select, textarea { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 15px; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+    label { font-size: 13px; color: #64748b; font-weight: 500; margin-bottom: 4px; display: block; }
+    .badge-verde { background: #d1fae5; color: #065f46; border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+    .badge-vermelho { background: #fee2e2; color: #991b1b; border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+    .badge-amarelo { background: #fef3c7; color: #92400e; border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+    .progress-bar { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+    .modal-box { background: white; border-radius: 16px 16px 0 0; width: 100%; max-width: 480px; padding: 24px; max-height: 90vh; overflow-y: auto; }
+    @media(min-width: 640px) { .modal-overlay { align-items: center; } .modal-box { border-radius: 16px; } }
+    .tab-btn { padding: 8px 16px; border-radius: 8px; font-size: 14px; border: none; cursor: pointer; background: transparent; color: #64748b; }
+    .tab-btn.active { background: #4f46e5; color: white; }
+    .hidden { display: none !important; }
+    #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 20px; border-radius: 10px; font-size: 14px; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+    #toast.show { opacity: 1; }
+    .spinner { border: 3px solid #e2e8f0; border-top: 3px solid #4f46e5; border-radius: 50%; width: 32px; height: 32px; animation: spin 0.8s linear infinite; margin: 40px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-around; padding: 8px 0 12px; z-index: 40; }
+    .bottom-nav button { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: none; cursor: pointer; font-size: 9px; color: #94a3b8; padding: 4px 4px; }
+    .bottom-nav button.active { color: #4f46e5; }
+    .bottom-nav button span.icon { font-size: 20px; }
+    .page { display: none; padding: 16px; padding-bottom: 90px; max-width: 480px; margin: 0 auto; }
+    .page.active { display: block; }
+    #auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
+    .divider { text-align: center; color: #94a3b8; font-size: 13px; margin: 16px 0; position: relative; }
+    .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #e2e8f0; }
+    .divider::before { left: 0; } .divider::after { right: 0; }
+    .item-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+    .item-row:last-child { border-bottom: none; }
+    .valor-positivo { color: #059669; font-weight: 600; }
+    .valor-negativo { color: #dc2626; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ============================================================ -->
+<!-- TELA DE AUTENTICAÇÃO -->
+<!-- ============================================================ -->
+<div id="auth-screen">
+  <div style="width:100%;max-width:400px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:48px;margin-bottom:8px;">💰</div>
+      <h1 style="color:white;font-size:26px;font-weight:700;margin:0;">Finanças Pessoais</h1>
+      <p style="color:rgba(255,255,255,0.7);margin-top:6px;">Controle financeiro simples e eficiente</p>
+    </div>
+    <div class="card" style="padding:24px;">
+      <!-- Tabs -->
+      <div style="display:flex;gap:8px;margin-bottom:24px;">
+        <button class="tab-btn active" style="flex:1;" onclick="showAuthTab('login')">Entrar</button>
+        <button class="tab-btn" style="flex:1;" onclick="showAuthTab('cadastro')">Cadastrar</button>
+      </div>
+      <!-- Login -->
+      <div id="tab-login">
+        <div style="margin-bottom:16px;">
+          <label>E-mail</label>
+          <input type="email" id="login-email" placeholder="seu@email.com" />
+        </div>
+        <div style="margin-bottom:24px;">
+          <label>Senha</label>
+          <input type="password" id="login-senha" placeholder="••••••••" />
+        </div>
+        <button class="btn-primary" onclick="fazerLogin()">Entrar</button>
+      </div>
+      <!-- Cadastro -->
+      <div id="tab-cadastro" class="hidden">
+        <div style="margin-bottom:16px;">
+          <label>Nome</label>
+          <input type="text" id="cad-nome" placeholder="Seu nome" />
+        </div>
+        <div style="margin-bottom:16px;">
+          <label>E-mail</label>
+          <input type="email" id="cad-email" placeholder="seu@email.com" />
+        </div>
+        <div style="margin-bottom:24px;">
+          <label>Senha (mínimo 6 caracteres)</label>
+          <input type="password" id="cad-senha" placeholder="••••••••" />
+        </div>
+        <button class="btn-primary" onclick="fazerCadastro()">Criar conta</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- APP PRINCIPAL -->
+<!-- ============================================================ -->
+<div id="app-screen" class="hidden">
+
+  <!-- HEADER -->
+  <div style="background:#4f46e5;color:white;padding:16px;position:sticky;top:0;z-index:30;">
+    <div style="max-width:480px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-size:12px;opacity:0.8;" id="header-saudacao">Olá!</div>
+        <div style="font-weight:700;font-size:18px;" id="header-nome">Usuário</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div id="header-mes-ano" style="font-size:13px;opacity:0.9;background:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;cursor:pointer;" onclick="abrirSeletorMes()"></div>
+        <button onclick="navegarPara('config')" style="background:rgba(255,255,255,0.2);border:none;color:white;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;" title="Configurações">⚙️</button>
+        <button onclick="fazerLogout()" style="background:rgba(255,255,255,0.2);border:none;color:white;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;">Sair</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PÁGINAS -->
+  <div id="page-dashboard" class="page active">
+    <div id="dashboard-content"><div class="spinner"></div></div>
+  </div>
+
+  <div id="page-lancamentos" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">Lançamentos</h2>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalLancamento()">+ Novo</button>
+    </div>
+    <div id="lancamentos-content"><div class="spinner"></div></div>
+  </div>
+
+  <div id="page-orcamento" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">Orçamento</h2>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalOrcamento()">+ Definir</button>
+    </div>
+    <div id="orcamento-content"><div class="spinner"></div></div>
+  </div>
+
+  <div id="page-cartoes" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">Cartões</h2>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalCartao()">+ Cartão</button>
+    </div>
+    <div id="cartoes-content"><div class="spinner"></div></div>
+  </div>
+
+  <div id="page-holerite" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">Holerite</h2>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalHolerite()">+ Lançar</button>
+    </div>
+    <div id="holerite-content"><div class="spinner"></div></div>
+  </div>
+
+  <div id="page-poupanca" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">Poupança</h2>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalMeta()">+ Meta</button>
+    </div>
+    <div id="poupanca-content"><div class="spinner"></div></div>
+  </div>
+
+  <div id="page-config" class="page">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;">Configurações</h2>
+    <div id="config-content"></div>
+  </div>
+
+  <!-- NAVEGAÇÃO INFERIOR -->
+  <nav class="bottom-nav">
+    <button onclick="navegarPara('dashboard')" id="nav-dashboard" class="active">
+      <span class="icon">🏠</span><span>Início</span>
+    </button>
+    <button onclick="navegarPara('lancamentos')" id="nav-lancamentos">
+      <span class="icon">📝</span><span>Lançamentos</span>
+    </button>
+    <button onclick="navegarPara('orcamento')" id="nav-orcamento">
+      <span class="icon">📊</span><span>Orçamento</span>
+    </button>
+    <button onclick="navegarPara('cartoes')" id="nav-cartoes">
+      <span class="icon">💳</span><span>Cartões</span>
+    </button>
+    <button onclick="navegarPara('holerite')" id="nav-holerite">
+      <span class="icon">📄</span><span>Holerite</span>
+    </button>
+    <button onclick="navegarPara('poupanca')" id="nav-poupanca">
+      <span class="icon">🎯</span><span>Poupança</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- MODAIS -->
+<!-- ============================================================ -->
+
+<!-- Modal Lançamento -->
+<div id="modal-lancamento" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-lancamento-titulo">Novo Lançamento</h3>
+      <button onclick="fecharModal('modal-lancamento')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:20px;">
+      <button class="tab-btn active" onclick="setTipoLancamento('despesa')" id="tab-despesa" style="flex:1;">💸 Despesa</button>
+      <button class="tab-btn" onclick="setTipoLancamento('receita')" id="tab-receita" style="flex:1;">💰 Receita</button>
+    </div>
+    <input type="hidden" id="lanc-id" />
+    <div style="display:grid;gap:14px;">
+
+      <!-- Favorecido -->
+      <div>
+        <label>Favorecido</label>
+        <div style="display:flex;gap:8px;">
+          <select id="lanc-favorecido" style="flex:1;">
+            <option value="">Selecione ou deixe em branco...</option>
+          </select>
+          <button type="button" onclick="abrirModalFavorecidoRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;white-space:nowrap;" title="Cadastrar novo favorecido">+</button>
+        </div>
+      </div>
+
+      <!-- Valor e Data lado a lado -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label>Valor (R$)</label>
+          <input type="number" id="lanc-valor" placeholder="0,00" step="0.01" min="0" />
+        </div>
+        <div>
+          <label>Data</label>
+          <input type="date" id="lanc-data" />
+        </div>
+      </div>
+
+      <!-- Categoria -->
+      <div>
+        <label>Categoria</label>
+        <div style="display:flex;gap:8px;">
+          <select id="lanc-categoria" onchange="atualizarSubcategorias()" style="flex:1;">
+            <option value="">Selecione...</option>
+          </select>
+          <button type="button" onclick="abrirModalCategoriaRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;" title="Nova categoria">+</button>
+        </div>
+      </div>
+      <div id="lanc-subcategoria-group" class="hidden">
+        <label>Subcategoria</label>
+        <select id="lanc-subcategoria">
+          <option value="">Selecione...</option>
+        </select>
+      </div>
+
+      <!-- Forma de Pagamento -->
+      <div id="lanc-forma-group">
+        <label>Forma de Pagamento</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
+          <button type="button" id="pgto-dinheiro" onclick="setFormaPgto('dinheiro')" style="padding:10px 6px;border:2px solid #4f46e5;border-radius:8px;background:#ede9fe;color:#4f46e5;font-size:13px;font-weight:600;cursor:pointer;">💵 Dinheiro</button>
+          <button type="button" id="pgto-debito"   onclick="setFormaPgto('debito')"   style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">💳 Débito</button>
+          <button type="button" id="pgto-pix"      onclick="setFormaPgto('pix')"      style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">📱 PIX</button>
+          <button type="button" id="pgto-cartao"   onclick="setFormaPgto('cartao')"   style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">💳 Cartão</button>
+        </div>
+        <input type="hidden" id="lanc-forma-pgto" value="dinheiro" />
+      </div>
+
+      <!-- Cartão: só aparece se forma = cartão -->
+      <div id="lanc-cartao-group" class="hidden">
+        <label>Qual cartão?</label>
+        <select id="lanc-cartao">
+          <option value="">Selecione o cartão...</option>
+        </select>
+        <div id="lanc-fatura-aviso" style="font-size:12px;color:#6d28d9;margin-top:6px;background:#ede9fe;border-radius:6px;padding:6px 10px;display:none;"></div>
+      </div>
+
+      <!-- Parcelas: só aparece se forma = cartão -->
+      <div id="lanc-parcelas-group" class="hidden">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <label>Nº de Parcelas</label>
+            <input type="number" id="lanc-parcelas" placeholder="1" min="1" max="99" value="1" oninput="toggleParcelaFields()" />
+          </div>
+          <div id="lanc-1a-parcela-group" class="hidden">
+            <label>1ª Parcela em</label>
+            <input type="month" id="lanc-1a-parcela" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Recorrente -->
+      <div id="lanc-recorrente-group">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;color:#374151;font-weight:500;">
+          <input type="checkbox" id="lanc-recorrente" onchange="toggleRecorrente()" style="width:18px;height:18px;accent-color:#4f46e5;cursor:pointer;" />
+          Repete todo mês (cobrança fixa)
+        </label>
+      </div>
+
+      <!-- Nota: recolhida por padrão -->
+      <div>
+        <button type="button" onclick="toggleObs()" style="background:none;border:none;color:#94a3b8;font-size:13px;cursor:pointer;padding:0;" id="lanc-obs-toggle">+ Adicionar nota</button>
+        <textarea id="lanc-obs" rows="2" placeholder="Alguma anotação extra..." style="display:none;margin-top:8px;"></textarea>
+      </div>
+
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;" id="lanc-btns">
+      <button class="btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarLancamento()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="lanc-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirLancamento()">🗑 Excluir lançamento</button>
+    </div>
+
+    <!-- Importar Extrato -->
+    <div class="divider">ou</div>
+    <button class="btn-secondary" style="width:100%;" onclick="abrirImportacao()">📄 Importar Extrato</button>
+  </div>
+</div>
+
+<!-- Modal Favorecido -->
+<div id="modal-favorecido" class="modal-overlay hidden" style="z-index:60;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-fav-titulo">Novo Favorecido</h3>
+      <button onclick="fecharModal('modal-favorecido')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="fav-id" />
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Nome</label>
+        <input type="text" id="fav-nome" placeholder="Ex: Vivo, Energisa, Mercadinho do João..." />
+      </div>
+      <input type="hidden" id="fav-icone" value="" />
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-favorecido')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarFavorecido()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="fav-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirFavorecido()">🗑 Excluir favorecido</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Importar Extrato -->
+<div id="modal-importar" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Importar Extrato</h3>
+      <button onclick="fecharModal('modal-importar')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Cole o texto do extrato bancário abaixo. O sistema tentará identificar as transações automaticamente.</p>
+    <div style="margin-bottom:16px;">
+      <label>Texto do Extrato</label>
+      <textarea id="extrato-texto" rows="8" placeholder="Cole aqui o conteúdo do extrato...&#10;&#10;Exemplo:&#10;15/05 SUPERMERCADO EXTRA -250,00&#10;16/05 PIX RECEBIDO +1500,00&#10;17/05 IFOOD -45,80"></textarea>
+    </div>
+    <button class="btn-primary" onclick="processarExtrato()">🔍 Analisar Extrato</button>
+    <div id="extrato-resultado" class="hidden" style="margin-top:20px;"></div>
+  </div>
+</div>
+
+<!-- Modal Orçamento -->
+<div id="modal-orcamento" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Definir Orçamento</h3>
+      <button onclick="fecharModal('modal-orcamento')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label>Categoria</label>
+      <select id="orc-categoria"></select>
+    </div>
+    <div style="margin-bottom:20px;">
+      <label>Valor Planejado (R$)</label>
+      <input type="number" id="orc-valor" placeholder="0,00" step="0.01" min="0" />
+    </div>
+    <button class="btn-primary" onclick="salvarOrcamento()">Salvar</button>
+    <div style="margin-top:12px;">
+      <button class="btn-secondary" style="width:100%;" onclick="copiarOrcamentoMesAnterior()">📋 Copiar do mês anterior</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Cartão -->
+<div id="modal-cartao" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-cartao-titulo">Novo Cartão</h3>
+      <button onclick="fecharModal('modal-cartao')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="cartao-id" />
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Nome / Apelido</label>
+        <input type="text" id="cartao-nome" placeholder="Ex: Nubank, Itaú Visa..." />
+      </div>
+      <div>
+        <label>Bandeira</label>
+        <select id="cartao-bandeira">
+          <option>Visa</option>
+          <option>Mastercard</option>
+          <option>Elo</option>
+          <option>American Express</option>
+          <option>Hipercard</option>
+          <option>Outra</option>
+        </select>
+      </div>
+      <div>
+        <label>Limite (R$)</label>
+        <input type="number" id="cartao-limite" placeholder="0,00" step="0.01" min="0" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label>Dia Fechamento</label>
+          <input type="number" id="cartao-fechamento" placeholder="Ex: 25" min="1" max="31" />
+        </div>
+        <div>
+          <label>Dia Vencimento</label>
+          <input type="number" id="cartao-vencimento" placeholder="Ex: 5" min="1" max="31" />
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-cartao')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarCartao()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="cartao-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirCartao()">🗑 Excluir cartão</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Holerite -->
+<div id="modal-holerite" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Lançar Holerite</h3>
+      <button onclick="fecharModal('modal-holerite')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="holerite-id" />
+    <div id="holerite-itens-lista" style="margin-bottom:16px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:16px;align-items:end;">
+      <div>
+        <label>Nome</label>
+        <input type="text" id="hol-item-nome" placeholder="Ex: Salário Base" />
+      </div>
+      <div>
+        <label>Valor (R$)</label>
+        <input type="number" id="hol-item-valor" placeholder="0,00" step="0.01" min="0" />
+      </div>
+      <div style="display:grid;gap:4px;">
+        <label>Tipo</label>
+        <select id="hol-item-tipo">
+          <option value="provento">Provento</option>
+          <option value="desconto">Desconto</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn-secondary" style="width:100%;margin-bottom:20px;" onclick="adicionarItemHolerite()">+ Adicionar Item</button>
+    <div style="background:#f8fafc;border-radius:10px;padding:14px;margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Bruto:</span><span id="hol-bruto" style="font-weight:600;">R$ 0,00</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Descontos:</span><span id="hol-descontos" style="font-weight:600;color:#dc2626;">R$ 0,00</span></div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span id="hol-liquido" style="font-weight:700;color:#059669;font-size:18px;">R$ 0,00</span></div>
+    </div>
+    <button class="btn-primary" onclick="salvarHolerite()">Salvar e Lançar como Receita</button>
+  </div>
+</div>
+
+<!-- Modal Meta de Poupança -->
+<div id="modal-meta" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-meta-titulo">Nova Meta</h3>
+      <button onclick="fecharModal('modal-meta')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="meta-id" />
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Nome do Objetivo</label>
+        <input type="text" id="meta-nome" placeholder="Ex: Reserva de Emergência, Viagem..." />
+      </div>
+      <div>
+        <label>Valor Meta (R$) — opcional</label>
+        <input type="number" id="meta-valor" placeholder="0,00" step="0.01" min="0" />
+      </div>
+      <div>
+        <label>Prazo — opcional</label>
+        <input type="month" id="meta-prazo" />
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-meta')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarMeta()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="meta-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirMeta()">🗑 Excluir meta</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Aporte -->
+<div id="modal-aporte" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Registrar Aporte</h3>
+      <button onclick="fecharModal('modal-aporte')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="aporte-meta-id" />
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Valor (R$)</label>
+        <input type="number" id="aporte-valor" placeholder="0,00" step="0.01" min="0" />
+      </div>
+      <div>
+        <label>Data</label>
+        <input type="date" id="aporte-data" />
+      </div>
+      <div>
+        <label>Observação (opcional)</label>
+        <input type="text" id="aporte-obs" placeholder="Ex: Transferência para poupança" />
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-aporte')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarAporte()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Seletor de Mês -->
+<div id="modal-mes" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Selecionar Mês</h3>
+      <button onclick="fecharModal('modal-mes')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="display:grid;gap:12px;">
+      <div>
+        <label>Mês</label>
+        <select id="sel-mes">
+          <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+          <option value="3">Março</option><option value="4">Abril</option>
+          <option value="5">Maio</option><option value="6">Junho</option>
+          <option value="7">Julho</option><option value="8">Agosto</option>
+          <option value="9">Setembro</option><option value="10">Outubro</option>
+          <option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+      </div>
+      <div>
+        <label>Ano</label>
+        <input type="number" id="sel-ano" value="2026" min="2020" max="2050" />
+      </div>
+    </div>
+    <button class="btn-primary" style="margin-top:20px;" onclick="aplicarMes()">Aplicar</button>
+  </div>
+</div>
+
+<!-- Modal Categoria / Subcategoria -->
+<div id="modal-categoria" class="modal-overlay hidden" style="z-index:60;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-cat-titulo">Nova Categoria</h3>
+      <button onclick="fecharModal('modal-categoria')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="cat-id" />
+    <div style="display:grid;gap:14px;">
+
+      <!-- Tipo (só aparece em categoria principal) -->
+      <div id="cat-tipo-group">
+        <label>Tipo</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <button id="cat-tipo-despesa" onclick="setCatTipo('despesa')" style="padding:10px;border:2px solid #4f46e5;border-radius:8px;background:#ede9fe;color:#4f46e5;font-weight:600;cursor:pointer;">💸 Despesa</button>
+          <button id="cat-tipo-receita" onclick="setCatTipo('receita')" style="padding:10px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-weight:600;cursor:pointer;">💰 Receita</button>
+        </div>
+        <input type="hidden" id="cat-tipo" value="despesa" />
+      </div>
+
+      <!-- Categoria pai (só aparece em subcategoria) -->
+      <div id="cat-parent-group" class="hidden">
+        <label>Pertence à categoria</label>
+        <select id="cat-parent" style="margin-top:4px;">
+          <option value="">Selecione...</option>
+        </select>
+      </div>
+
+      <!-- Nome -->
+      <div>
+        <label>Nome</label>
+        <input type="text" id="cat-nome" placeholder="Ex: Alimentação" />
+      </div>
+
+      <!-- Seletor de emoji -->
+      <div>
+        <label>Ícone</label>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+          <div id="cat-icone-preview" style="font-size:28px;width:44px;height:44px;border:2px solid #e2e8f0;border-radius:10px;display:flex;align-items:center;justify-content:center;">📁</div>
+          <div style="flex:1;">
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px;">Toque para escolher:</div>
+            <div id="emoji-grid" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+        </div>
+        <input type="hidden" id="cat-icone" value="📁" />
+      </div>
+
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-categoria')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarCategoria()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="cat-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirCategoria()">🗑 Excluir</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Meta Poupança Mensal -->
+<div id="modal-perc-poupanca" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Meta de Poupança do Mês</h3>
+      <button onclick="fecharModal('modal-perc-poupanca')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Defina qual percentual da sua renda líquida você quer poupar neste mês.</p>
+    <div>
+      <label>Percentual de Poupança (%)</label>
+      <input type="number" id="perc-valor" placeholder="Ex: 20" min="0" max="100" step="1" />
+    </div>
+    <button class="btn-primary" style="margin-top:20px;" onclick="salvarPercPoupanca()">Salvar</button>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCRIPTS -->
+<!-- ============================================================ -->
+<script>
+// ============================================================
+// CONFIGURAÇÃO SUPABASE
+// Substitua pelos valores do seu projeto Supabase
+// ============================================================
+const SUPABASE_URL = 'https://ffelwbhvovfiofqwdfjn.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmZWx3Ymh2b3ZmaW9mcXdkZmpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1OTI1MjgsImV4cCI6MjA5NTE2ODUyOH0.Orc3WVZtyo6h3isla0wvCzbAW0Pu6V-T_QN4iI6CgAA';
+
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Estado global
+let mesAtual = new Date().getMonth() + 1;
+let anoAtual = new Date().getFullYear();
+let categorias = [];
+let cartoes = [];
+let favorecidos = [];
+let recorrencias = [];
+let holerite_itens_temp = [];
+let lancamentoEditandoId = null;
+let paginaAtual = 'dashboard';
+let appInicializado = false; // Guard contra múltiplas inicializações
+
+// ============================================================
+// UTILITÁRIOS
+// ============================================================
+const R$ = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// Timeout para queries do Supabase (30 segundos - servidor nos EUA pode demorar)
+function comTimeout(promise, ms = 30000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Servidor demorou demais. Toque em "Tentar novamente".')), ms))
+  ]);
+}
+
+function toast(msg, tipo='info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = tipo === 'erro' ? '#dc2626' : tipo === 'ok' ? '#059669' : '#1e293b';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function fecharModal(id) { document.getElementById(id).classList.add('hidden'); }
+function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
+
+function progressCor(pct) {
+  if (pct >= 100) return '#dc2626';
+  if (pct >= 80) return '#f59e0b';
+  return '#4f46e5';
+}
+
+// ============================================================
+// AUTENTICAÇÃO
+// ============================================================
+function showAuthTab(tab) {
+  document.getElementById('tab-login').classList.toggle('hidden', tab !== 'login');
+  document.getElementById('tab-cadastro').classList.toggle('hidden', tab !== 'cadastro');
+  document.querySelectorAll('#auth-screen .tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', (i === 0 && tab === 'login') || (i === 1 && tab === 'cadastro'));
+  });
+}
+
+async function fazerLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const senha = document.getElementById('login-senha').value;
+  if (!email || !senha) { toast('Preencha e-mail e senha', 'erro'); return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password: senha });
+  if (error) { toast('E-mail ou senha incorretos', 'erro'); return; }
+}
+
+async function fazerCadastro() {
+  const nome = document.getElementById('cad-nome').value.trim();
+  const email = document.getElementById('cad-email').value.trim();
+  const senha = document.getElementById('cad-senha').value;
+  if (!nome || !email || !senha) { toast('Preencha todos os campos', 'erro'); return; }
+  if (senha.length < 6) { toast('Senha deve ter pelo menos 6 caracteres', 'erro'); return; }
+  const { error } = await sb.auth.signUp({ email, password: senha, options: { data: { nome } } });
+  if (error) { toast('Erro ao criar conta: ' + error.message, 'erro'); return; }
+  toast('Conta criada! Verifique seu e-mail para confirmar.', 'ok');
+}
+
+async function fazerLogout() {
+  await sb.auth.signOut();
+}
+
+// ============================================================
+// CONTROLE DE SESSÃO
+// ============================================================
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (session) {
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('app-screen').classList.remove('hidden');
+    // Só inicializa uma vez — evita múltiplas chamadas do Supabase auth
+    if (!appInicializado) {
+      appInicializado = true;
+      await inicializar(session.user);
+    }
+  } else {
+    appInicializado = false;
+    document.getElementById('auth-screen').classList.remove('hidden');
+    document.getElementById('app-screen').classList.add('hidden');
+  }
+});
+
+async function inicializar(user) {
+  const nome = user.user_metadata?.nome || user.email.split('@')[0];
+  document.getElementById('header-nome').textContent = nome;
+  const h = new Date().getHours();
+  document.getElementById('header-saudacao').textContent = h < 12 ? 'Bom dia,' : h < 18 ? 'Boa tarde,' : 'Boa noite,';
+  atualizarHeaderMes();
+  // Mostra mensagem de carregamento
+  document.getElementById('dashboard-content').innerHTML = `
+    <div style="text-align:center;padding:40px;color:#64748b;">
+      <div class="spinner"></div>
+      <div style="margin-top:16px;font-size:14px;">Conectando ao banco de dados...</div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Pode levar alguns segundos na primeira vez</div>
+    </div>`;
+  try {
+    await comTimeout(carregarCategorias(), 30000);
+    await comTimeout(carregarCartoes(), 30000);
+    await comTimeout(carregarFavorecidos(), 30000);
+    await comTimeout(carregarRecorrencias(), 30000);
+    await processarRecorrencias();
+  } catch(e) {
+    appInicializado = false; // Permite tentar novamente
+    document.getElementById('dashboard-content').innerHTML = `
+      <div style="text-align:center;padding:40px;color:#dc2626;">
+        <div style="font-size:36px;margin-bottom:12px;">⚠️</div>
+        <div style="font-weight:600;margin-bottom:8px;">Não foi possível conectar</div>
+        <div style="font-size:13px;color:#64748b;margin-bottom:16px;">O servidor está lento agora. Tente recarregar.</div>
+        <button onclick="location.reload()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:15px;">🔄 Tentar novamente</button>
+      </div>`;
+    return;
+  }
+  renderizarDashboard();
+  renderizarConfig();
+}
+
+function atualizarHeaderMes() {
+  document.getElementById('header-mes-ano').textContent = meses[mesAtual - 1] + ' ' + anoAtual;
+}
+
+// ============================================================
+// NAVEGAÇÃO
+// ============================================================
+function navegarPara(pagina) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + pagina).classList.add('active');
+  document.getElementById('nav-' + pagina)?.classList.add('active');
+  paginaAtual = pagina;
+  if (pagina === 'dashboard') renderizarDashboard();
+  if (pagina === 'lancamentos') renderizarLancamentos();
+  if (pagina === 'orcamento') renderizarOrcamento();
+  if (pagina === 'cartoes') renderizarCartoes();
+  if (pagina === 'holerite') renderizarHolerite();
+  if (pagina === 'poupanca') renderizarPoupanca();
+}
+
+// ============================================================
+// SELETOR DE MÊS
+// ============================================================
+function abrirSeletorMes() {
+  document.getElementById('sel-mes').value = mesAtual;
+  document.getElementById('sel-ano').value = anoAtual;
+  abrirModal('modal-mes');
+}
+
+function aplicarMes() {
+  mesAtual = parseInt(document.getElementById('sel-mes').value);
+  anoAtual = parseInt(document.getElementById('sel-ano').value);
+  atualizarHeaderMes();
+  fecharModal('modal-mes');
+  navegarPara(paginaAtual);
+}
+
+// ============================================================
+// CATEGORIAS
+// ============================================================
+async function carregarCategorias() {
+  const { data } = await sb.from('categorias').select('*').order('nome');
+  categorias = data || [];
+}
+
+// ============================================================
+// FAVORECIDOS
+// ============================================================
+async function carregarFavorecidos() {
+  const { data } = await sb.from('favorecidos').select('*').order('nome');
+  favorecidos = data || [];
+}
+
+function popularSelectFavorecidos(selectId, valorAtual = '') {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Selecione ou deixe em branco...</option>';
+  favorecidos.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.nome;
+    if (f.id === valorAtual) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+const EMOJIS_FAVORECIDOS = ['🏢','🏪','🏬','🏦','🏥','🏫','🛒','🚗','✈️','🍕','☕','💊','📱','💡','💧','🔥','🏠','🎓','💈','🎭','🏋️','🐾','📦','🛠️','💻','🎵','📺'];
+
+function renderEmojiGridFavorecido() {
+  const grid = document.getElementById('fav-emoji-grid');
+  if (!grid) return;
+  grid.innerHTML = EMOJIS_FAVORECIDOS.map(e =>
+    `<button type="button" onclick="document.getElementById('fav-icone').value='${e}';document.getElementById('fav-icone-preview').textContent='${e}'" style="font-size:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:4px 6px;cursor:pointer;">${e}</button>`
+  ).join('');
+}
+
+function abrirModalFavorecido(id = null) {
+  document.getElementById('fav-id').value = id || '';
+  document.getElementById('modal-fav-titulo').textContent = id ? 'Editar Favorecido' : 'Novo Favorecido';
+  if (id) {
+    const f = favorecidos.find(x => x.id === id);
+    document.getElementById('fav-nome').value = f?.nome || '';
+    document.getElementById('fav-btn-excluir').classList.remove('hidden');
+  } else {
+    document.getElementById('fav-nome').value = '';
+    document.getElementById('fav-btn-excluir').classList.add('hidden');
+  }
+  abrirModal('modal-favorecido');
+}
+
+async function abrirModalFavorecidoRapido() {
+  // Abre o modal de favorecido a partir do modal de lançamento
+  // Ao salvar, volta e popula o select automaticamente
+  abrirModalFavorecido(null);
+  window._favModoRapido = true;
+}
+
+async function salvarFavorecido() {
+  const nome = document.getElementById('fav-nome').value.trim();
+  if (!nome) { toast('Informe o nome do favorecido', 'erro'); return; }
+  const icone = document.getElementById('fav-icone').value || '🏢';
+  const id = document.getElementById('fav-id').value;
+  const uid = (await sb.auth.getUser()).data.user.id;
+
+  if (id) {
+    const { error } = await sb.from('favorecidos').update({ nome, icone }).eq('id', id);
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    toast('Favorecido atualizado!', 'ok');
+  } else {
+    const { data, error } = await sb.from('favorecidos').insert({ user_id: uid, nome, icone }).select().single();
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    await carregarFavorecidos();
+    if (window._favModoRapido && data) {
+      // Seleciona automaticamente no modal de lançamento
+      popularSelectFavorecidos('lanc-favorecido');
+      document.getElementById('lanc-favorecido').value = data.id;
+      window._favModoRapido = false;
+    }
+    toast('Favorecido criado!', 'ok');
+  }
+
+  await carregarFavorecidos();
+  fecharModal('modal-favorecido');
+  if (paginaAtual === 'config') renderizarConfig();
+}
+
+async function excluirFavorecido() {
+  if (!confirm('Excluir este favorecido?')) return;
+  const id = document.getElementById('fav-id').value;
+  await sb.from('favorecidos').delete().eq('id', id);
+  await carregarFavorecidos();
+  toast('Favorecido excluído', 'ok');
+  fecharModal('modal-favorecido');
+  if (paginaAtual === 'config') renderizarConfig();
+}
+
+// ============================================================
+// RECORRÊNCIAS
+// ============================================================
+async function carregarRecorrencias() {
+  const { data } = await sb.from('recorrencias')
+    .select('*, favorecidos(nome), categorias(nome,icone), cartoes(nome)')
+    .eq('ativa', true)
+    .order('created_at');
+  recorrencias = data || [];
+}
+
+async function processarRecorrencias() {
+  if (recorrencias.length === 0) return;
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const mesStr = String(mesAtual).padStart(2, '0');
+  const inicioMes = `${anoAtual}-${mesStr}-01`;
+  const fimMes = `${anoAtual}-${mesStr}-31`;
+
+  // Busca lançamentos deste mês que já vieram de recorrência
+  const { data: jaExistem } = await sb.from('lancamentos')
+    .select('recorrencia_id')
+    .eq('user_id', uid)
+    .gte('data', inicioMes)
+    .lte('data', fimMes)
+    .not('recorrencia_id', 'is', null);
+
+  const idsJaCriados = new Set((jaExistem || []).map(l => l.recorrencia_id));
+
+  const inserts = [];
+  for (const rec of recorrencias) {
+    if (idsJaCriados.has(rec.id)) continue; // já foi criado esse mês
+    const dia = Math.min(rec.dia_do_mes, 28);
+    const data = `${anoAtual}-${mesStr}-${String(dia).padStart(2, '0')}`;
+    const favNome = rec.favorecidos?.nome || rec.categorias?.nome || (rec.tipo === 'receita' ? 'Receita' : 'Despesa');
+    inserts.push({
+      user_id: uid,
+      descricao: favNome,
+      valor: rec.valor,
+      data,
+      tipo: rec.tipo,
+      categoria_id: rec.categoria_id,
+      favorecido_id: rec.favorecido_id,
+      cartao_id: rec.cartao_id,
+      forma_pagamento: rec.forma_pagamento,
+      recorrencia_id: rec.id
+    });
+  }
+  if (inserts.length > 0) {
+    await sb.from('lancamentos').insert(inserts);
+  }
+}
+
+function toggleRecorrente() {
+  // Sem efeito visual extra — o checkbox faz tudo
+}
+
+async function desativarRecorrencia(id) {
+  if (!confirm('Cancelar esta cobrança recorrente? Os lançamentos já criados não serão apagados.')) return;
+  await sb.from('recorrencias').update({ ativa: false }).eq('id', id);
+  await carregarRecorrencias();
+  toast('Recorrência cancelada', 'ok');
+  renderizarConfig();
+}
+
+function popularSelectCategorias(selectId, tipo = null) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '<option value="">Selecione...</option>';
+  // Mostra apenas categorias PRINCIPAIS (sem parent_id)
+  const cats = categorias.filter(c => !c.parent_id && (tipo ? c.tipo === tipo : true));
+  cats.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.icone || '📁') + ' ' + c.nome;
+    sel.appendChild(opt);
+  });
+  // Limpa e esconde subcategoria ao repopular
+  const subGroup = document.getElementById('lanc-subcategoria-group');
+  if (subGroup) {
+    subGroup.classList.add('hidden');
+    document.getElementById('lanc-subcategoria').innerHTML = '<option value="">Selecione...</option>';
+  }
+}
+
+function atualizarSubcategorias() {
+  const catId = document.getElementById('lanc-categoria').value;
+  const subGroup = document.getElementById('lanc-subcategoria-group');
+  const subSel = document.getElementById('lanc-subcategoria');
+  if (!catId) {
+    subGroup.classList.add('hidden');
+    return;
+  }
+  const subs = categorias.filter(c => c.parent_id === catId);
+  if (subs.length === 0) {
+    subGroup.classList.add('hidden');
+    return;
+  }
+  subSel.innerHTML = '<option value="">Nenhuma (usar só a categoria)</option>';
+  subs.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.icone || '📁') + ' ' + c.nome;
+    subSel.appendChild(opt);
+  });
+  subGroup.classList.remove('hidden');
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+async function renderizarDashboard() {
+  const el = document.getElementById('dashboard-content');
+  el.innerHTML = '<div class="spinner"></div>';
+
+  try {
+
+  const { data: lancDados, error: errLanc } = await comTimeout(
+    sb.from('lancamentos')
+      .select('*, categorias(nome,tipo)')
+      .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
+      .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`)
+  );
+
+  if (errLanc) throw errLanc;
+
+  const receitas = (lancDados || []).filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+  const despesas = (lancDados || []).filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
+  const saldo = receitas - despesas;
+
+  const { data: configPoupa } = await comTimeout(
+    sb.from('config_poupanca_mensal')
+      .select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle()
+  );
+  const percPoupa = configPoupa?.percentual || 0;
+  const metaPoupa = receitas * (percPoupa / 100);
+
+  const { data: orcDados } = await comTimeout(
+    sb.from('orcamento')
+      .select('*, categorias(nome,icone)').eq('mes', mesAtual).eq('ano', anoAtual)
+  );
+
+  const categoriasAlerta = [];
+  (orcDados || []).forEach(o => {
+    const gasto = (lancDados || [])
+      .filter(l => l.categoria_id === o.categoria_id)
+      .reduce((s, l) => s + Number(l.valor), 0);
+    const pct = o.valor_planejado > 0 ? (gasto / o.valor_planejado) * 100 : 0;
+    if (pct >= 80) categoriasAlerta.push({ nome: o.categorias?.nome, pct });
+  });
+
+  const { data: faturas } = await comTimeout(
+    sb.from('lancamentos')
+      .select('*, cartoes(nome,dia_vencimento)')
+      .eq('tipo', 'despesa').not('cartao_id', 'is', null)
+      .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
+      .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`)
+  );
+
+  const totalCartoes = (faturas || []).reduce((s, l) => s + Number(l.valor), 0);
+
+  const alertaPoupa = receitas > 0 && (receitas - despesas) < metaPoupa;
+
+  el.innerHTML = `
+    <!-- Saldo -->
+    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('lancamentos')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:13px;color:#64748b;font-weight:500;">💰 Saldo do Mês</div>
+        <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Receitas</div>
+          <div style="font-weight:700;color:#059669;font-size:16px;">${R$(receitas)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Gastos</div>
+          <div style="font-weight:700;color:#dc2626;font-size:16px;">${R$(despesas)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Saldo</div>
+          <div style="font-weight:700;font-size:16px;color:${saldo >= 0 ? '#059669' : '#dc2626'}">${R$(saldo)}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Poupança -->
+    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('poupanca')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-size:13px;color:#64748b;font-weight:500;">🎯 Meta de Poupança</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button onclick="event.stopPropagation();abrirModalPercPoupanca()" style="background:#f1f5f9;border:none;border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:#64748b;">${percPoupa}% ✏️</button>
+          <div style="font-size:12px;color:#94a3b8;">ver ▶</div>
+        </div>
+      </div>
+      ${percPoupa > 0 ? `
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:13px;color:#374151;">Meta: ${R$(metaPoupa)}</span>
+          <span class="${alertaPoupa ? 'badge-vermelho' : 'badge-verde'}">${alertaPoupa ? '⚠️ Em risco' : '✅ No caminho'}</span>
+        </div>
+      ` : `<div style="font-size:13px;color:#94a3b8;">Toque em ${percPoupa}% para definir sua meta.</div>`}
+    </div>
+
+    <!-- Cartões -->
+    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('cartoes')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-size:13px;color:#64748b;font-weight:500;">💳 Cartões</div>
+        <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
+      </div>
+      <div style="font-weight:700;font-size:20px;margin-bottom:4px;">${R$(totalCartoes)}</div>
+      <div style="font-size:12px;color:#64748b;">Fatura total este mês (${cartoes.filter(c=>c.ativo).length} cartões ativos)</div>
+    </div>
+
+    <!-- Orçamento -->
+    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-size:13px;color:#64748b;font-weight:500;">📊 Orçamento</div>
+        <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
+      </div>
+      ${categoriasAlerta.length > 0 ? `
+        <div style="font-size:13px;color:#374151;margin-bottom:8px;">${categoriasAlerta.filter(c=>c.pct>=100).length} categoria(s) estourada(s) 🔴</div>
+        <div style="font-size:13px;color:#374151;">${categoriasAlerta.filter(c=>c.pct>=80&&c.pct<100).length} categoria(s) acima de 80% ⚠️</div>
+      ` : `<div style="font-size:13px;color:#059669;">✅ Tudo dentro do orçamento!</div>`}
+    </div>
+
+    <!-- Acesso Rápido -->
+    <div style="font-size:13px;color:#64748b;font-weight:500;margin-bottom:10px;">Acesso Rápido</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button onclick="abrirModalLancamento()" style="background:white;border:2px dashed #e2e8f0;border-radius:12px;padding:16px;cursor:pointer;font-size:14px;color:#4f46e5;font-weight:600;">+ Lançamento</button>
+      <button onclick="navegarPara('holerite')" style="background:white;border:2px dashed #e2e8f0;border-radius:12px;padding:16px;cursor:pointer;font-size:14px;color:#4f46e5;font-weight:600;">📄 Holerite</button>
+    </div>
+  `;
+
+  } catch(e) {
+    console.error('Erro no dashboard:', e);
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#dc2626;">
+      <div style="font-size:36px;margin-bottom:12px;">⚠️</div>
+      <div style="font-weight:600;margin-bottom:8px;">Erro ao carregar o dashboard</div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:16px;">${e?.message || JSON.stringify(e)}</div>
+      <button onclick="renderizarDashboard()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px;">Tentar novamente</button>
+    </div>`;
+  }
+}
+
+// ============================================================
+// LANÇAMENTOS
+// ============================================================
+async function renderizarLancamentos() {
+  const el = document.getElementById('lancamentos-content');
+  el.innerHTML = '<div class="spinner"></div>';
+  const { data } = await sb.from('lancamentos')
+    .select('*, categorias(nome,icone), cartoes(nome), favorecidos(nome,icone)')
+    .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`)
+    .order('data', { ascending: false });
+
+  if (!data || data.length === 0) {
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">📝</div>
+      <div>Nenhum lançamento este mês.</div>
+      <div style="font-size:13px;margin-top:4px;">Toque em "+ Novo" para adicionar.</div>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+  let dataAnterior = '';
+  data.forEach(l => {
+    if (l.data !== dataAnterior) {
+      if (dataAnterior) html += '</div>';
+      const dt = new Date(l.data + 'T12:00:00');
+      html += `<div style="font-size:12px;color:#94a3b8;font-weight:600;margin:16px 0 8px;">${dt.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'}).toUpperCase()}</div><div class="card">`;
+      dataAnterior = l.data;
+    }
+    const icone = l.categorias?.icone || (l.tipo === 'receita' ? '💰' : '💸');
+    html += `
+      <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;">
+        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+          <div style="font-size:22px;">${icone}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</div>
+            <div style="font-size:12px;color:#94a3b8;">${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' • ' + l.favorecidos.nome : ''}${l.cartoes ? ' • ' + l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' • 🔁' : ''}</div>
+          </div>
+        </div>
+        <div class="${l.tipo === 'receita' ? 'valor-positivo' : 'valor-negativo'}" style="font-size:15px;white-space:nowrap;margin-left:8px;">
+          ${l.tipo === 'receita' ? '+' : '-'} ${R$(l.valor)}
+        </div>
+      </div>`;
+  });
+  if (dataAnterior) html += '</div>';
+  el.innerHTML = html;
+}
+
+function abrirModalLancamento() {
+  lancamentoEditandoId = null;
+  document.getElementById('lanc-id').value = '';
+  document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento';
+  document.getElementById('lanc-valor').value = '';
+  document.getElementById('lanc-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('lanc-obs').value = '';
+  document.getElementById('lanc-obs').style.display = 'none';
+  document.getElementById('lanc-obs-toggle').textContent = '+ Adicionar nota';
+  document.getElementById('lanc-recorrente').checked = false;
+  document.getElementById('lanc-parcelas').value = 1;
+  document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
+  document.getElementById('lanc-btn-excluir').classList.add('hidden');
+  setTipoLancamento('despesa');
+  popularSelectCartoes();
+  popularSelectFavorecidos('lanc-favorecido');
+  abrirModal('modal-lancamento');
+}
+
+async function editarLancamento(id) {
+  const { data: l } = await sb.from('lancamentos').select('*').eq('id', id).single();
+  if (!l) return;
+  lancamentoEditandoId = id;
+  document.getElementById('lanc-id').value = id;
+  document.getElementById('modal-lancamento-titulo').textContent = 'Editar Lançamento';
+  document.getElementById('lanc-valor').value = l.valor;
+  document.getElementById('lanc-data').value = l.data;
+  // Nota
+  const obs = l.observacao || '';
+  document.getElementById('lanc-obs').value = obs;
+  document.getElementById('lanc-obs').style.display = obs ? 'block' : 'none';
+  document.getElementById('lanc-obs-toggle').textContent = obs ? '− Remover nota' : '+ Adicionar nota';
+  document.getElementById('lanc-btn-excluir').classList.remove('hidden');
+  setTipoLancamento(l.tipo);
+  popularSelectCategorias('lanc-categoria', l.tipo);
+  if (l.categoria_id) {
+    const cat = categorias.find(c => c.id === l.categoria_id);
+    if (cat?.parent_id) {
+      document.getElementById('lanc-categoria').value = cat.parent_id;
+      atualizarSubcategorias();
+      document.getElementById('lanc-subcategoria').value = l.categoria_id;
+    } else {
+      document.getElementById('lanc-categoria').value = l.categoria_id;
+      atualizarSubcategorias();
+    }
+  }
+  popularSelectCartoes();
+  popularSelectFavorecidos('lanc-favorecido', l.favorecido_id || '');
+  // Restaura forma de pagamento
+  const forma = l.forma_pagamento || (l.cartao_id ? 'cartao' : 'dinheiro');
+  setFormaPgto(forma);
+  if (forma === 'cartao' && l.cartao_id) {
+    document.getElementById('lanc-cartao').value = l.cartao_id;
+    calcularFatura();
+  }
+  abrirModal('modal-lancamento');
+}
+
+function setTipoLancamento(tipo) {
+  document.getElementById('tab-despesa').classList.toggle('active', tipo === 'despesa');
+  document.getElementById('tab-receita').classList.toggle('active', tipo === 'receita');
+  // Receita não tem forma de pagamento nem parcelas
+  document.getElementById('lanc-forma-group').classList.toggle('hidden', tipo === 'receita');
+  document.getElementById('lanc-cartao-group').classList.add('hidden');
+  document.getElementById('lanc-parcelas-group').classList.add('hidden');
+  if (tipo === 'despesa') setFormaPgto('dinheiro');
+  popularSelectCategorias('lanc-categoria', tipo);
+}
+
+function getTipoLancamento() {
+  return document.getElementById('tab-despesa').classList.contains('active') ? 'despesa' : 'receita';
+}
+
+function setFormaPgto(forma) {
+  document.getElementById('lanc-forma-pgto').value = forma;
+  ['dinheiro','debito','pix','cartao'].forEach(f => {
+    const btn = document.getElementById('pgto-' + f);
+    if (!btn) return;
+    const ativo = f === forma;
+    const cores = { dinheiro: ['#ede9fe','#4f46e5'], debito: ['#dbeafe','#1d4ed8'], pix: ['#d1fae5','#059669'], cartao: ['#fef3c7','#d97706'] };
+    btn.style.background = ativo ? cores[f][0] : 'white';
+    btn.style.borderColor = ativo ? cores[f][1] : '#e2e8f0';
+    btn.style.color = ativo ? cores[f][1] : '#64748b';
+  });
+  const isCartao = forma === 'cartao';
+  document.getElementById('lanc-cartao-group').classList.toggle('hidden', !isCartao);
+  document.getElementById('lanc-parcelas-group').classList.toggle('hidden', !isCartao);
+  if (!isCartao) {
+    document.getElementById('lanc-cartao').value = '';
+    document.getElementById('lanc-parcelas').value = '1';
+    document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
+    document.getElementById('lanc-fatura-aviso').style.display = 'none';
+  }
+}
+
+function calcularFatura() {
+  const cartaoId = document.getElementById('lanc-cartao').value;
+  const data = document.getElementById('lanc-data').value;
+  const aviso = document.getElementById('lanc-fatura-aviso');
+  if (!cartaoId || !data) { aviso.style.display = 'none'; return; }
+  const cartao = cartoes.find(c => c.id === cartaoId);
+  if (!cartao) return;
+  const dCompra = new Date(data + 'T12:00:00');
+  const diaFecha = cartao.dia_fechamento;
+  let mesFatura = dCompra.getMonth() + 1;
+  let anoFatura = dCompra.getFullYear();
+  // Se o dia da compra é APÓS o fechamento, cai na fatura do mês seguinte
+  if (dCompra.getDate() > diaFecha) {
+    mesFatura = mesFatura === 12 ? 1 : mesFatura + 1;
+    if (mesFatura === 1) anoFatura++;
+  }
+  aviso.style.display = 'block';
+  aviso.textContent = `📅 Cai na fatura de ${meses[mesFatura-1]} ${anoFatura} (fechamento dia ${diaFecha})`;
+}
+
+function toggleObs() {
+  const obs = document.getElementById('lanc-obs');
+  const btn = document.getElementById('lanc-obs-toggle');
+  const visible = obs.style.display !== 'none';
+  obs.style.display = visible ? 'none' : 'block';
+  btn.textContent = visible ? '+ Adicionar nota' : '− Remover nota';
+}
+
+function toggleParcelaFields() {
+  const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
+  document.getElementById('lanc-1a-parcela-group').classList.toggle('hidden', n <= 1);
+}
+
+function popularSelectCartoes() {
+  const sel = document.getElementById('lanc-cartao');
+  sel.innerHTML = '<option value="">Selecione o cartão...</option>';
+  cartoes.filter(c => c.ativo).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.nome;
+    sel.appendChild(opt);
+  });
+  sel.onchange = calcularFatura;
+  document.getElementById('lanc-data').addEventListener('change', calcularFatura);
+}
+
+async function salvarLancamento() {
+  const valor = parseFloat(document.getElementById('lanc-valor').value);
+  const data = document.getElementById('lanc-data').value;
+  const tipo = getTipoLancamento();
+  // Usa subcategoria se selecionada, senão usa a categoria principal
+  const subCatId = document.getElementById('lanc-subcategoria')?.value || null;
+  const catId = subCatId || document.getElementById('lanc-categoria').value || null;
+  const forma = document.getElementById('lanc-forma-pgto').value || 'dinheiro';
+  const cartaoId = forma === 'cartao' ? (document.getElementById('lanc-cartao').value || null) : null;
+  const favId = document.getElementById('lanc-favorecido').value || null;
+  const obs = document.getElementById('lanc-obs').value.trim() || null;
+  const parcelas = parseInt(document.getElementById('lanc-parcelas').value) || 1;
+  // Descrição vem do favorecido selecionado, ou da categoria, ou genérico
+  const favNome = favId ? (favorecidos.find(f => f.id === favId)?.nome || '') : '';
+  const catNome = catId ? (categorias.find(c => c.id === catId)?.nome || '') : '';
+  const desc = favNome || catNome || (tipo === 'receita' ? 'Receita' : 'Despesa');
+
+  if (!valor || !data) { toast('Preencha o valor e a data', 'erro'); return; }
+  if (forma === 'cartao' && !cartaoId) { toast('Selecione o cartão', 'erro'); return; }
+
+  const id = document.getElementById('lanc-id').value;
+  const ehRecorrente = document.getElementById('lanc-recorrente').checked;
+
+  if (id) {
+    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs }).eq('id', id);
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    toast('Lançamento atualizado!', 'ok');
+  } else if (ehRecorrente) {
+    // Cria a recorrência e já lança o mês atual
+    const uid = (await sb.auth.getUser()).data.user.id;
+    const diaDaData = parseInt(data.split('-')[2]);
+    const { data: rec, error: errRec } = await sb.from('recorrencias').insert({
+      user_id: uid, favorecido_id: favId, categoria_id: catId, valor, tipo,
+      cartao_id: cartaoId, forma_pagamento: forma, dia_do_mes: diaDaData, ativa: true
+    }).select().single();
+    if (errRec) { toast('Erro ao criar recorrência', 'erro'); return; }
+    // Lançamento do mês atual vinculado
+    await sb.from('lancamentos').insert({
+      user_id: uid, descricao: desc, valor, data, tipo,
+      categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId,
+      forma_pagamento: forma, observacao: obs, recorrencia_id: rec.id
+    });
+    await carregarRecorrencias();
+    fecharModal('modal-lancamento');
+    navegarPara('lancamentos');
+    await renderizarLancamentos();
+    toast('Recorrência criada! Vai aparecer todo mês automaticamente. 🔁', 'ok');
+    return;
+  } else if (parcelas > 1 && tipo === 'despesa') {
+    // Parcelado
+    const mesInicio = document.getElementById('lanc-1a-parcela').value;
+    if (!mesInicio) { toast('Informe o mês da 1ª parcela', 'erro'); return; }
+    const [anoP, mesP] = mesInicio.split('-').map(Number);
+    const grupoId = crypto.randomUUID();
+    const valorParcela = valor / parcelas;
+    const inserts = [];
+    for (let i = 0; i < parcelas; i++) {
+      const d = new Date(anoP, mesP - 1 + i, 15);
+      inserts.push({
+        user_id: (await sb.auth.getUser()).data.user.id,
+        descricao: `${desc} (${i+1}/${parcelas})`,
+        valor: valorParcela,
+        data: d.toISOString().split('T')[0],
+        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs,
+        parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: grupoId
+      });
+    }
+    const { error } = await sb.from('lancamentos').insert(inserts);
+    if (error) { toast('Erro ao salvar parcelas', 'erro'); return; }
+    toast(`${parcelas} parcelas criadas!`, 'ok');
+  } else {
+    // Simples
+    const uid = (await sb.auth.getUser()).data.user.id;
+    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs });
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    toast('Lançamento salvo!', 'ok');
+  }
+
+  fecharModal('modal-lancamento');
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+}
+
+async function excluirLancamento() {
+  if (!confirm('Excluir este lançamento?')) return;
+  const id = document.getElementById('lanc-id').value;
+  await sb.from('lancamentos').delete().eq('id', id);
+  toast('Lançamento excluído', 'ok');
+  fecharModal('modal-lancamento');
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+}
+
+// ============================================================
+// IMPORTAR EXTRATO
+// ============================================================
+function abrirImportacao() {
+  fecharModal('modal-lancamento');
+  document.getElementById('extrato-texto').value = '';
+  document.getElementById('extrato-resultado').classList.add('hidden');
+  abrirModal('modal-importar');
+}
+
+async function processarExtrato() {
+  const texto = document.getElementById('extrato-texto').value.trim();
+  if (!texto) { toast('Cole o texto do extrato', 'erro'); return; }
+
+  const linhas = texto.split('\n').filter(l => l.trim());
+  const transacoes = [];
+
+  linhas.forEach(linha => {
+    // Padrões comuns de extrato
+    const padroes = [
+      /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+([+-]?\d+[\.,]\d{2})/,
+      /(\d{2}-\d{2}(?:-\d{2,4})?)\s+(.+?)\s+([+-]?\d+[\.,]\d{2})/,
+      /(.+?)\s+(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+([+-]?\d+[\.,]\d{2})/,
+    ];
+
+    let encontrado = false;
+    for (const p of padroes) {
+      const m = linha.match(p);
+      if (m) {
+        const valorStr = m[3].replace(',', '.').replace(/[^0-9.-]/g, '');
+        const valor = Math.abs(parseFloat(valorStr));
+        const negativo = m[3].includes('-') || linha.toLowerCase().includes('débito') || linha.toLowerCase().includes('debito');
+        if (!isNaN(valor) && valor > 0) {
+          let dataStr = m[1];
+          let descStr = m[2];
+          if (!dataStr.match(/\d{2}\/\d{2}/)) { dataStr = m[2]; descStr = m[1]; }
+          const partes = dataStr.replace(/-/g, '/').split('/');
+          const dia = partes[0], mes = partes[1];
+          const ano = partes[2] ? (partes[2].length === 2 ? '20' + partes[2] : partes[2]) : String(anoAtual);
+          transacoes.push({
+            data: `${ano}-${mes.padStart(2,'0')}-${dia.padStart(2,'0')}`,
+            descricao: descStr.trim(),
+            valor, tipo: negativo ? 'despesa' : 'receita', selecionado: true
+          });
+          encontrado = true; break;
+        }
+      }
+    }
+    if (!encontrado && linha.trim()) {
+      const valorMatch = linha.match(/([+-]?\d+[\.,]\d{2})/);
+      if (valorMatch) {
+        const valor = Math.abs(parseFloat(valorMatch[1].replace(',', '.')));
+        const desc = linha.replace(valorMatch[0], '').trim();
+        if (valor > 0 && desc) {
+          transacoes.push({
+            data: new Date().toISOString().split('T')[0],
+            descricao: desc, valor,
+            tipo: valorMatch[1].startsWith('-') ? 'despesa' : 'receita',
+            selecionado: true
+          });
+        }
+      }
+    }
+  });
+
+  if (transacoes.length === 0) {
+    toast('Não foi possível identificar transações. Verifique o formato.', 'erro'); return;
+  }
+
+  const el = document.getElementById('extrato-resultado');
+  el.classList.remove('hidden');
+
+  let html = `<div style="font-size:14px;font-weight:600;margin-bottom:12px;">${transacoes.length} transações identificadas:</div>`;
+  transacoes.forEach((t, i) => {
+    html += `
+      <div class="card" style="padding:12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:start;gap:10px;">
+          <input type="checkbox" id="tr-${i}" checked style="width:auto;margin-top:2px;" />
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:13px;">${t.descricao}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+              <input type="date" id="tr-data-${i}" value="${t.data}" style="font-size:12px;padding:4px 8px;" />
+              <select id="tr-tipo-${i}" style="font-size:12px;padding:4px 8px;">
+                <option value="despesa" ${t.tipo==='despesa'?'selected':''}>Despesa</option>
+                <option value="receita" ${t.tipo==='receita'?'selected':''}>Receita</option>
+              </select>
+              <input type="number" id="tr-valor-${i}" value="${t.valor.toFixed(2)}" style="font-size:12px;padding:4px 8px;" step="0.01" />
+              <select id="tr-cat-${i}" style="font-size:12px;padding:4px 8px;">
+                <option value="">Sem categoria</option>
+                ${categorias.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  });
+
+  html += `<button class="btn-primary" style="margin-top:8px;" onclick="confirmarImportacao(${transacoes.length})">✅ Importar Selecionados</button>`;
+  el.innerHTML = html;
+}
+
+async function confirmarImportacao(total) {
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const inserts = [];
+  for (let i = 0; i < total; i++) {
+    if (!document.getElementById(`tr-${i}`).checked) continue;
+    inserts.push({
+      user_id: uid,
+      data: document.getElementById(`tr-data-${i}`).value,
+      descricao: document.querySelectorAll('.card .font-weight-600')[i]?.textContent || `Transação ${i+1}`,
+      valor: parseFloat(document.getElementById(`tr-valor-${i}`).value),
+      tipo: document.getElementById(`tr-tipo-${i}`).value,
+      categoria_id: document.getElementById(`tr-cat-${i}`).value || null
+    });
+  }
+  if (inserts.length === 0) { toast('Nenhuma transação selecionada', 'erro'); return; }
+  const { error } = await sb.from('lancamentos').insert(inserts);
+  if (error) { toast('Erro ao importar', 'erro'); return; }
+  toast(`${inserts.length} lançamentos importados!`, 'ok');
+  fecharModal('modal-importar');
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+}
+
+// ============================================================
+// ORÇAMENTO
+// ============================================================
+async function renderizarOrcamento() {
+  const el = document.getElementById('orcamento-content');
+  el.innerHTML = '<div class="spinner"></div>';
+
+  const { data: orc } = await sb.from('orcamento')
+    .select('*, categorias(nome,icone,tipo)').eq('mes', mesAtual).eq('ano', anoAtual);
+
+  const { data: lanc } = await sb.from('lancamentos')
+    .select('valor,categoria_id')
+    .eq('tipo', 'despesa')
+    .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`);
+
+  if (!orc || orc.length === 0) {
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">📊</div>
+      <div>Nenhum orçamento definido para este mês.</div>
+      <div style="font-size:13px;margin-top:4px;">Toque em "+ Definir" para começar.</div>
+    </div>`;
+    return;
+  }
+
+  const gastosPorCat = {};
+  (lanc || []).forEach(l => {
+    gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor);
+  });
+
+  let totalPlanejado = 0, totalGasto = 0;
+  let html = '<div>';
+  orc.forEach(o => {
+    const gasto = gastosPorCat[o.categoria_id] || 0;
+    const pct = o.valor_planejado > 0 ? Math.min((gasto / o.valor_planejado) * 100, 100) : 0;
+    const pctReal = o.valor_planejado > 0 ? (gasto / o.valor_planejado) * 100 : 0;
+    totalPlanejado += Number(o.valor_planejado);
+    totalGasto += gasto;
+    const cor = progressCor(pctReal);
+    html += `
+      <div class="card" style="padding:16px;margin-bottom:12px;cursor:pointer;" onclick="editarOrcamento('${o.id}','${o.categoria_id}',${o.valor_planejado})">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div style="font-weight:600;">${o.categorias?.icone || '📁'} ${o.categorias?.nome}</div>
+          <div class="${pctReal >= 100 ? 'badge-vermelho' : pctReal >= 80 ? 'badge-amarelo' : 'badge-verde'}">${Math.round(pctReal)}%</div>
+        </div>
+        <div class="progress-bar" style="margin-bottom:8px;">
+          <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;">
+          <span>Gasto: <strong style="color:${cor}">${R$(gasto)}</strong></span>
+          <span>Planejado: <strong>${R$(o.valor_planejado)}</strong></span>
+        </div>
+      </div>`;
+  });
+
+  const pctTotal = totalPlanejado > 0 ? (totalGasto / totalPlanejado) * 100 : 0;
+  html = `<div class="card" style="padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;color:#64748b;margin-bottom:8px;font-weight:500;">Total do Mês</div>
+    <div class="progress-bar" style="margin-bottom:8px;">
+      <div class="progress-fill" style="width:${Math.min(pctTotal,100)}%;background:${progressCor(pctTotal)};"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;">
+      <span>Gasto: <strong>${R$(totalGasto)}</strong></span>
+      <span>Planejado: <strong>${R$(totalPlanejado)}</strong></span>
+    </div>
+  </div>` + html + '</div>';
+  el.innerHTML = html;
+}
+
+function abrirModalOrcamento(catId = '', valor = '') {
+  popularSelectCategorias('orc-categoria', 'despesa');
+  if (catId) document.getElementById('orc-categoria').value = catId;
+  document.getElementById('orc-valor').value = valor;
+  abrirModal('modal-orcamento');
+}
+
+function editarOrcamento(id, catId, valor) {
+  abrirModalOrcamento(catId, valor);
+}
+
+async function salvarOrcamento() {
+  const catId = document.getElementById('orc-categoria').value;
+  const valor = parseFloat(document.getElementById('orc-valor').value);
+  if (!catId || !valor) { toast('Preencha categoria e valor', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { error } = await sb.from('orcamento').upsert({ user_id: uid, categoria_id: catId, mes: mesAtual, ano: anoAtual, valor_planejado: valor }, { onConflict: 'user_id,categoria_id,mes,ano' });
+  if (error) { toast('Erro ao salvar', 'erro'); return; }
+  toast('Orçamento salvo!', 'ok');
+  fecharModal('modal-orcamento');
+  renderizarOrcamento();
+}
+
+async function copiarOrcamentoMesAnterior() {
+  const mesAnt = mesAtual === 1 ? 12 : mesAtual - 1;
+  const anoAnt = mesAtual === 1 ? anoAtual - 1 : anoAtual;
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { data: ant } = await sb.from('orcamento').select('*').eq('mes', mesAnt).eq('ano', anoAnt);
+  if (!ant || ant.length === 0) { toast('Nenhum orçamento no mês anterior', 'erro'); return; }
+  const inserts = ant.map(o => ({ user_id: uid, categoria_id: o.categoria_id, mes: mesAtual, ano: anoAtual, valor_planejado: o.valor_planejado }));
+  await sb.from('orcamento').upsert(inserts, { onConflict: 'user_id,categoria_id,mes,ano' });
+  toast('Orçamento copiado!', 'ok');
+  fecharModal('modal-orcamento');
+  renderizarOrcamento();
+}
+
+// ============================================================
+// CARTÕES
+// ============================================================
+async function carregarCartoes() {
+  const { data } = await sb.from('cartoes').select('*').order('nome');
+  cartoes = data || [];
+}
+
+async function renderizarCartoes() {
+  await carregarCartoes();
+  const el = document.getElementById('cartoes-content');
+  if (cartoes.length === 0) {
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">💳</div>
+      <div>Nenhum cartão cadastrado.</div>
+    </div>`;
+    return;
+  }
+
+  const { data: lanc } = await sb.from('lancamentos')
+    .select('valor,cartao_id').eq('tipo','despesa').not('cartao_id','is',null)
+    .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`);
+
+  const fatPorCartao = {};
+  (lanc || []).forEach(l => {
+    fatPorCartao[l.cartao_id] = (fatPorCartao[l.cartao_id] || 0) + Number(l.valor);
+  });
+
+  let html = '';
+  cartoes.forEach(c => {
+    const fatura = fatPorCartao[c.id] || 0;
+    const disponivel = c.limite - fatura;
+    const pct = c.limite > 0 ? (fatura / c.limite) * 100 : 0;
+    html += `
+      <div class="card" style="padding:18px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div>
+            <div style="font-weight:700;font-size:16px;">💳 ${c.nome}</div>
+            <div style="font-size:12px;color:#94a3b8;">${c.bandeira} • Fecha dia ${c.dia_fechamento} • Vence dia ${c.dia_vencimento}</div>
+          </div>
+          <button onclick="editarCartao('${c.id}')" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:12px;">
+          <div><div style="font-size:11px;color:#64748b;">Fatura</div><div style="font-weight:700;color:#dc2626;">${R$(fatura)}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">Disponível</div><div style="font-weight:700;color:#059669;">${R$(disponivel)}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">Limite</div><div style="font-weight:700;">${R$(c.limite)}</div></div>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${Math.min(pct,100)}%;background:${progressCor(pct)};"></div>
+        </div>
+      </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function abrirModalCartao() {
+  document.getElementById('cartao-id').value = '';
+  document.getElementById('modal-cartao-titulo').textContent = 'Novo Cartão';
+  document.getElementById('cartao-nome').value = '';
+  document.getElementById('cartao-limite').value = '';
+  document.getElementById('cartao-fechamento').value = '';
+  document.getElementById('cartao-vencimento').value = '';
+  document.getElementById('cartao-btn-excluir').classList.add('hidden');
+  abrirModal('modal-cartao');
+}
+
+async function editarCartao(id) {
+  const c = cartoes.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cartao-id').value = id;
+  document.getElementById('modal-cartao-titulo').textContent = 'Editar Cartão';
+  document.getElementById('cartao-nome').value = c.nome;
+  document.getElementById('cartao-bandeira').value = c.bandeira;
+  document.getElementById('cartao-limite').value = c.limite;
+  document.getElementById('cartao-fechamento').value = c.dia_fechamento;
+  document.getElementById('cartao-vencimento').value = c.dia_vencimento;
+  document.getElementById('cartao-btn-excluir').classList.remove('hidden');
+  abrirModal('modal-cartao');
+}
+
+async function salvarCartao() {
+  const nome = document.getElementById('cartao-nome').value.trim();
+  const bandeira = document.getElementById('cartao-bandeira').value;
+  const limite = parseFloat(document.getElementById('cartao-limite').value) || 0;
+  const fechamento = parseInt(document.getElementById('cartao-fechamento').value);
+  const vencimento = parseInt(document.getElementById('cartao-vencimento').value);
+  if (!nome || !fechamento || !vencimento) { toast('Preencha nome, fechamento e vencimento', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const id = document.getElementById('cartao-id').value;
+  if (id) {
+    await sb.from('cartoes').update({ nome, bandeira, limite, dia_fechamento: fechamento, dia_vencimento: vencimento }).eq('id', id);
+    toast('Cartão atualizado!', 'ok');
+  } else {
+    await sb.from('cartoes').insert({ user_id: uid, nome, bandeira, limite, dia_fechamento: fechamento, dia_vencimento: vencimento });
+    toast('Cartão cadastrado!', 'ok');
+  }
+  await carregarCartoes();
+  fecharModal('modal-cartao');
+  renderizarCartoes();
+}
+
+async function excluirCartao() {
+  if (!confirm('Excluir este cartão? Os lançamentos vinculados não serão excluídos.')) return;
+  await sb.from('cartoes').delete().eq('id', document.getElementById('cartao-id').value);
+  toast('Cartão excluído', 'ok');
+  await carregarCartoes();
+  fecharModal('modal-cartao');
+  renderizarCartoes();
+}
+
+// ============================================================
+// HOLERITE
+// ============================================================
+async function renderizarHolerite() {
+  const el = document.getElementById('holerite-content');
+  el.innerHTML = '<div class="spinner"></div>';
+  const { data: h } = await sb.from('holerites').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
+  if (!h) {
+    // Verifica se tem holerite do mês anterior para oferecer cópia
+    const mesAnt = mesAtual === 1 ? 12 : mesAtual - 1;
+    const anoAnt = mesAtual === 1 ? anoAtual - 1 : anoAtual;
+    const { data: hAnt } = await sb.from('holerites').select('*').eq('mes', mesAnt).eq('ano', anoAnt).maybeSingle();
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">📄</div>
+      <div style="font-size:15px;color:#374151;font-weight:600;margin-bottom:4px;">${meses[mesAtual-1]} ${anoAtual}</div>
+      <div style="font-size:13px;margin-bottom:20px;">Nenhum holerite lançado ainda.</div>
+      ${hAnt ? `<button onclick="copiarHoleriteAnterior('${hAnt.id}')" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer;width:100%;margin-bottom:10px;">📋 Copiar de ${meses[mesAnt-1]} ${anoAnt}</button>` : ''}
+      <button onclick="abrirModalHolerite()" style="background:${hAnt?'#f1f5f9':'#4f46e5'};color:${hAnt?'#374151':'white'};border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer;width:100%;">+ Lançar do zero</button>
+    </div>`;
+    return;
+  }
+  const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', h.id).order('ordem');
+  const proventos = (itens||[]).filter(i=>i.tipo==='provento').reduce((s,i)=>s+Number(i.valor),0);
+  const descontos = (itens||[]).filter(i=>i.tipo==='desconto').reduce((s,i)=>s+Number(i.valor),0);
+  const liquido = proventos - descontos;
+
+  let html = `<div class="card" style="padding:20px;margin-bottom:14px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div style="font-weight:700;font-size:16px;">📄 ${meses[mesAtual-1]} ${anoAtual}</div>
+      <button onclick="editarHolerite('${h.id}')" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
+    </div>
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:#64748b;font-weight:500;margin-bottom:8px;">PROVENTOS</div>`;
+  (itens||[]).filter(i=>i.tipo==='provento').forEach(i => {
+    html += `<div class="item-row"><span style="font-size:14px;">${i.nome}</span><span class="valor-positivo">${R$(i.valor)}</span></div>`;
+  });
+  html += `</div><div style="margin-bottom:12px;">
+    <div style="font-size:12px;color:#64748b;font-weight:500;margin-bottom:8px;">DESCONTOS</div>`;
+  (itens||[]).filter(i=>i.tipo==='desconto').forEach(i => {
+    html += `<div class="item-row"><span style="font-size:14px;">${i.nome}</span><span class="valor-negativo">- ${R$(i.valor)}</span></div>`;
+  });
+  html += `</div>
+    <div style="background:#f8fafc;border-radius:10px;padding:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Total Bruto:</span><span style="font-weight:600;">${R$(proventos)}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Total Descontos:</span><span style="font-weight:600;color:#dc2626;">- ${R$(descontos)}</span></div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span style="font-weight:700;color:#059669;font-size:18px;">${R$(liquido)}</span></div>
+    </div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+async function abrirModalHolerite() {
+  holerite_itens_temp = [];
+  document.getElementById('holerite-id').value = '';
+  renderizarItensHolerite();
+  abrirModal('modal-holerite');
+}
+
+async function editarHolerite(id) {
+  const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', id).order('ordem');
+  holerite_itens_temp = (itens||[]).map(i => ({ nome: i.nome, tipo: i.tipo, valor: Number(i.valor) }));
+  document.getElementById('holerite-id').value = id;
+  renderizarItensHolerite();
+  abrirModal('modal-holerite');
+}
+
+async function copiarHoleriteAnterior(hIdAnt) {
+  const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', hIdAnt).order('ordem');
+  // Carrega os itens do mês anterior com valores zerados para o usuário ajustar
+  holerite_itens_temp = (itens||[]).map(i => ({ nome: i.nome, tipo: i.tipo, valor: Number(i.valor) }));
+  document.getElementById('holerite-id').value = '';
+  renderizarItensHolerite();
+  toast('Itens carregados — ajuste os valores e salve!', 'ok');
+  abrirModal('modal-holerite');
+}
+
+function adicionarItemHolerite() {
+  const nome = document.getElementById('hol-item-nome').value.trim();
+  const valor = parseFloat(document.getElementById('hol-item-valor').value);
+  const tipo = document.getElementById('hol-item-tipo').value;
+  if (!nome || !valor) { toast('Preencha nome e valor', 'erro'); return; }
+  holerite_itens_temp.push({ nome, valor, tipo });
+  document.getElementById('hol-item-nome').value = '';
+  document.getElementById('hol-item-valor').value = '';
+  renderizarItensHolerite();
+}
+
+function removerItemHolerite(i) {
+  holerite_itens_temp.splice(i, 1);
+  renderizarItensHolerite();
+}
+
+function renderizarItensHolerite() {
+  const el = document.getElementById('holerite-itens-lista');
+  let bruto = 0, desc = 0;
+  let html = '';
+  holerite_itens_temp.forEach((item, i) => {
+    if (item.tipo === 'provento') bruto += item.valor;
+    else desc += item.valor;
+    html += `<div class="item-row">
+      <div style="flex:1;"><span style="font-size:13px;font-weight:600;">${item.nome}</span>
+      <span class="badge-${item.tipo==='provento'?'verde':'vermelho'}" style="margin-left:8px;">${item.tipo}</span></div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-weight:600;color:${item.tipo==='provento'?'#059669':'#dc2626'}">${R$(item.valor)}</span>
+        <button onclick="removerItemHolerite(${i})" style="background:none;border:none;cursor:pointer;font-size:16px;color:#94a3b8;">✕</button>
+      </div>
+    </div>`;
+  });
+  el.innerHTML = html;
+  document.getElementById('hol-bruto').textContent = R$(bruto);
+  document.getElementById('hol-descontos').textContent = R$(desc);
+  document.getElementById('hol-liquido').textContent = R$(bruto - desc);
+}
+
+async function salvarHolerite() {
+  if (holerite_itens_temp.length === 0) { toast('Adicione pelo menos um item', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const bruto = holerite_itens_temp.filter(i=>i.tipo==='provento').reduce((s,i)=>s+i.valor,0);
+  const desc = holerite_itens_temp.filter(i=>i.tipo==='desconto').reduce((s,i)=>s+i.valor,0);
+  const liquido = bruto - desc;
+  const idExistente = document.getElementById('holerite-id').value;
+
+  let holeriteId;
+  if (idExistente) {
+    await sb.from('holerite_itens').delete().eq('holerite_id', idExistente);
+    holeriteId = idExistente;
+  } else {
+    const { data: h } = await sb.from('holerites').insert({ user_id: uid, mes: mesAtual, ano: anoAtual }).select().single();
+    holeriteId = h.id;
+  }
+
+  const itens = holerite_itens_temp.map((i, idx) => ({ holerite_id: holeriteId, nome: i.nome, tipo: i.tipo, valor: i.valor, ordem: idx }));
+  await sb.from('holerite_itens').insert(itens);
+
+  // Lançar como receita
+  const dataLanc = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
+  const catReceita = categorias.find(c => c.tipo === 'receita' && c.nome.toLowerCase().includes('salár')) || categorias.find(c => c.tipo === 'receita');
+  if (idExistente) {
+    await sb.from('lancamentos').delete().eq('user_id', uid).eq('data', dataLanc).eq('descricao', `Salário líquido - ${meses[mesAtual-1]} ${anoAtual}`);
+  }
+  await sb.from('lancamentos').insert({ user_id: uid, data: dataLanc, descricao: `Salário líquido - ${meses[mesAtual-1]} ${anoAtual}`, valor: liquido, tipo: 'receita', categoria_id: catReceita?.id || null });
+
+  toast('Holerite salvo e receita lançada!', 'ok');
+  fecharModal('modal-holerite');
+  renderizarHolerite();
+}
+
+// ============================================================
+// POUPANÇA
+// ============================================================
+async function renderizarPoupanca() {
+  const el = document.getElementById('poupanca-content');
+  el.innerHTML = '<div class="spinner"></div>';
+
+  const { data: metas } = await sb.from('metas_poupanca').select('*').eq('ativa', true).order('nome');
+  const { data: aportes } = await sb.from('aportes_poupanca').select('*');
+  const { data: configPoupa } = await sb.from('config_poupanca_mensal').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
+
+  const percPoupa = configPoupa?.percentual || 0;
+  const { data: lanc } = await sb.from('lancamentos').select('valor').eq('tipo','receita')
+    .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
+    .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-31`);
+  const totalReceitas = (lanc||[]).reduce((s,l)=>s+Number(l.valor),0);
+  const metaMensal = totalReceitas * (percPoupa / 100);
+
+  const aportesMes = (aportes||[]).filter(a => a.mes === mesAtual && a.ano === anoAtual);
+  const totalAportesMes = aportesMes.reduce((s,a)=>s+Number(a.valor),0);
+
+  let html = `
+    <div class="card" style="padding:18px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;">🎯 Meta do Mês</div>
+        <button onclick="abrirModalPercPoupanca()" style="background:#f1f5f9;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px;">${percPoupa}% ✏️</button>
+      </div>
+      ${percPoupa > 0 ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+          <div><div style="font-size:11px;color:#64748b;">Meta</div><div style="font-weight:700;">${R$(metaMensal)}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">Poupado</div><div style="font-weight:700;color:#059669;">${R$(totalAportesMes)}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">Faltam</div><div style="font-weight:700;color:${totalAportesMes >= metaMensal ? '#059669' : '#dc2626'}">${R$(Math.max(0,metaMensal-totalAportesMes))}</div></div>
+        </div>
+        <div class="progress-bar" style="margin-top:12px;">
+          <div class="progress-fill" style="width:${Math.min(metaMensal>0?totalAportesMes/metaMensal*100:0,100)}%;background:#059669;"></div>
+        </div>
+      ` : '<div style="font-size:13px;color:#94a3b8;">Toque no percentual para definir sua meta.</div>'}
+    </div>`;
+
+  if (!metas || metas.length === 0) {
+    html += `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">🏦</div>
+      <div>Nenhuma meta cadastrada ainda.</div>
+      <div style="font-size:13px;margin-top:4px;">Toque em "+ Meta" para criar um objetivo.</div>
+    </div>`;
+    el.innerHTML = html;
+    return;
+  }
+
+  metas.forEach(m => {
+    const totalAcum = (aportes||[]).filter(a=>a.meta_id===m.id).reduce((s,a)=>s+Number(a.valor),0);
+    const pct = m.valor_meta > 0 ? Math.min((totalAcum / m.valor_meta) * 100, 100) : null;
+
+    let prazoInfo = '';
+    if (m.prazo) {
+      const prazo = new Date(m.prazo + '-01');
+      prazoInfo = `Prazo: ${prazo.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}`;
+    }
+
+    html += `
+      <div class="card" style="padding:18px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div>
+            <div style="font-weight:700;font-size:16px;">${m.icone || '🎯'} ${m.nome}</div>
+            ${prazoInfo ? `<div style="font-size:12px;color:#94a3b8;">${prazoInfo}</div>` : ''}
+          </div>
+          <button onclick="editarMeta('${m.id}')" style="background:#f1f5f9;border:none;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px;">✏️</button>
+        </div>
+        <div style="font-size:22px;font-weight:700;color:#059669;margin-bottom:4px;">${R$(totalAcum)}</div>
+        ${m.valor_meta ? `
+          <div style="font-size:13px;color:#64748b;margin-bottom:10px;">de ${R$(m.valor_meta)} • ${Math.round(pct)}% atingido</div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${pct}%;background:#059669;"></div>
+          </div>
+        ` : ''}
+        <button onclick="abrirAporte('${m.id}')" style="width:100%;margin-top:12px;background:#d1fae5;color:#065f46;border:none;border-radius:8px;padding:8px;cursor:pointer;font-size:14px;font-weight:600;">+ Registrar Aporte</button>
+      </div>`;
+  });
+
+  el.innerHTML = html;
+}
+
+function abrirModalPercPoupanca() {
+  abrirModal('modal-perc-poupanca');
+}
+
+async function salvarPercPoupanca() {
+  const perc = parseFloat(document.getElementById('perc-valor').value);
+  if (isNaN(perc) || perc < 0 || perc > 100) { toast('Percentual inválido', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  await sb.from('config_poupanca_mensal').upsert({ user_id: uid, mes: mesAtual, ano: anoAtual, percentual: perc }, { onConflict: 'user_id,mes,ano' });
+  toast('Meta de poupança salva!', 'ok');
+  fecharModal('modal-perc-poupanca');
+  renderizarPoupanca();
+}
+
+function abrirModalMeta() {
+  document.getElementById('meta-id').value = '';
+  document.getElementById('modal-meta-titulo').textContent = 'Nova Meta';
+  document.getElementById('meta-nome').value = '';
+  document.getElementById('meta-valor').value = '';
+  document.getElementById('meta-prazo').value = '';
+  document.getElementById('meta-btn-excluir').classList.add('hidden');
+  abrirModal('modal-meta');
+}
+
+async function editarMeta(id) {
+  const { data: m } = await sb.from('metas_poupanca').select('*').eq('id', id).single();
+  if (!m) return;
+  document.getElementById('meta-id').value = id;
+  document.getElementById('modal-meta-titulo').textContent = 'Editar Meta';
+  document.getElementById('meta-nome').value = m.nome;
+  document.getElementById('meta-valor').value = m.valor_meta || '';
+  document.getElementById('meta-prazo').value = m.prazo ? m.prazo.substring(0,7) : '';
+  document.getElementById('meta-btn-excluir').classList.remove('hidden');
+  abrirModal('modal-meta');
+}
+
+async function salvarMeta() {
+  const nome = document.getElementById('meta-nome').value.trim();
+  if (!nome) { toast('Informe o nome da meta', 'erro'); return; }
+  const valor = parseFloat(document.getElementById('meta-valor').value) || null;
+  const prazo = document.getElementById('meta-prazo').value || null;
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const id = document.getElementById('meta-id').value;
+  if (id) {
+    await sb.from('metas_poupanca').update({ nome, valor_meta: valor, prazo: prazo ? prazo + '-01' : null }).eq('id', id);
+    toast('Meta atualizada!', 'ok');
+  } else {
+    await sb.from('metas_poupanca').insert({ user_id: uid, nome, valor_meta: valor, prazo: prazo ? prazo + '-01' : null });
+    toast('Meta criada!', 'ok');
+  }
+  fecharModal('modal-meta');
+  renderizarPoupanca();
+}
+
+async function excluirMeta() {
+  if (!confirm('Excluir esta meta? Os aportes registrados serão perdidos.')) return;
+  await sb.from('metas_poupanca').delete().eq('id', document.getElementById('meta-id').value);
+  toast('Meta excluída', 'ok');
+  fecharModal('modal-meta');
+  renderizarPoupanca();
+}
+
+function abrirAporte(metaId) {
+  document.getElementById('aporte-meta-id').value = metaId;
+  document.getElementById('aporte-valor').value = '';
+  document.getElementById('aporte-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('aporte-obs').value = '';
+  abrirModal('modal-aporte');
+}
+
+async function salvarAporte() {
+  const metaId = document.getElementById('aporte-meta-id').value;
+  const valor = parseFloat(document.getElementById('aporte-valor').value);
+  const data = document.getElementById('aporte-data').value;
+  if (!valor || !data) { toast('Preencha valor e data', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const mes = parseInt(data.split('-')[1]);
+  const ano = parseInt(data.split('-')[0]);
+  await sb.from('aportes_poupanca').insert({ user_id: uid, meta_id: metaId, mes, ano, valor, data, observacao: document.getElementById('aporte-obs').value || null });
+  toast('Aporte registrado!', 'ok');
+  fecharModal('modal-aporte');
+  renderizarPoupanca();
+}
+
+// ============================================================
+// CONFIGURAÇÕES (Categorias)
+// ============================================================
+const EMOJIS_DESPESA = ['🍔','🛒','🍕','☕','🚗','⛽','🏠','💡','💊','🎬','👕','📱','🏋️','✈️','🎓','🐶','🧹','💈','🎮','📦'];
+const EMOJIS_RECEITA = ['💼','💰','📈','🏦','🎁','🏠','💻','🤝','📊','🌟','💵','🎯','🔑','📝','⭐'];
+
+function renderEmojiGrid(tipo, selecionado) {
+  const lista = tipo === 'receita' ? EMOJIS_RECEITA : EMOJIS_DESPESA;
+  const grid = document.getElementById('emoji-grid');
+  if (!grid) return;
+  grid.innerHTML = lista.map(e => `
+    <button onclick="selecionarEmoji('${e}')" style="font-size:22px;background:${e===selecionado?'#ede9fe':'#f8fafc'};border:2px solid ${e===selecionado?'#6d28d9':'transparent'};border-radius:8px;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;">${e}</button>
+  `).join('');
+}
+
+function selecionarEmoji(e) {
+  document.getElementById('cat-icone').value = e;
+  document.getElementById('cat-icone-preview').textContent = e;
+  const tipo = document.getElementById('cat-tipo').value;
+  renderEmojiGrid(tipo, e);
+}
+
+function setCatTipo(tipo) {
+  document.getElementById('cat-tipo').value = tipo;
+  document.getElementById('cat-tipo-despesa').style.background = tipo==='despesa' ? '#ede9fe' : 'white';
+  document.getElementById('cat-tipo-despesa').style.borderColor = tipo==='despesa' ? '#4f46e5' : '#e2e8f0';
+  document.getElementById('cat-tipo-despesa').style.color = tipo==='despesa' ? '#4f46e5' : '#64748b';
+  document.getElementById('cat-tipo-receita').style.background = tipo==='receita' ? '#d1fae5' : 'white';
+  document.getElementById('cat-tipo-receita').style.borderColor = tipo==='receita' ? '#059669' : '#e2e8f0';
+  document.getElementById('cat-tipo-receita').style.color = tipo==='receita' ? '#059669' : '#64748b';
+  renderEmojiGrid(tipo, document.getElementById('cat-icone').value);
+}
+
+async function renderizarConfig() {
+  const el = document.getElementById('config-content');
+  if (!el) return;
+  await carregarCategorias();
+  await carregarFavorecidos();
+  await carregarRecorrencias();
+
+  const despesas = categorias.filter(c => c.tipo === 'despesa' && !c.parent_id);
+  const receitas = categorias.filter(c => c.tipo === 'receita' && !c.parent_id);
+
+  const renderArvore = (lista) => lista.map(c => {
+    const subs = categorias.filter(s => s.parent_id === c.id);
+    return `
+      <div style="margin-bottom:8px;background:#f8fafc;border-radius:10px;padding:10px 12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-weight:600;font-size:15px;">${c.icone||'📁'} ${c.nome}</span>
+          <div style="display:flex;gap:6px;">
+            <button onclick="abrirNovaSubcategoria('${c.id}','${c.tipo}')" style="background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;">+ Subcategoria</button>
+            <button onclick="editarCategoria('${c.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;">✏️</button>
+          </div>
+        </div>
+        ${subs.length > 0 ? `<div style="margin-top:8px;padding-left:12px;border-left:2px solid #e2e8f0;">
+          ${subs.map(s => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;">
+              <span style="font-size:14px;color:#374151;">${s.icone||'📁'} ${s.nome}</span>
+              <button onclick="editarCategoria('${s.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
+            </div>`).join('')}
+        </div>` : ''}
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:15px;">💸 Despesas</div>
+        <button onclick="abrirModalCategoria('despesa')" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Categoria</button>
+      </div>
+      ${despesas.length ? renderArvore(despesas) : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma categoria ainda.</div>'}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:15px;">💰 Receitas</div>
+        <button onclick="abrirModalCategoria('receita')" style="background:#059669;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Categoria</button>
+      </div>
+      ${receitas.length ? renderArvore(receitas) : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma categoria ainda.</div>'}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:15px;margin-bottom:12px;">🔁 Recorrências ativas</div>
+      ${recorrencias.length ? recorrencias.map(r => {
+        const nome = r.favorecidos?.nome || r.categorias?.nome || 'Sem nome';
+        const icone = r.categorias?.icone || '🔁';
+        const forma = r.forma_pagamento === 'cartao' ? (r.cartoes?.nome || 'Cartão') : r.forma_pagamento;
+        return `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+          <div>
+            <div style="font-weight:600;font-size:14px;">${icone} ${nome}</div>
+            <div style="font-size:12px;color:#94a3b8;">R$ ${Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})} • dia ${r.dia_do_mes} • ${forma}</div>
+          </div>
+          <button onclick="desativarRecorrencia('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Cancelar</button>
+        </div>`;
+      }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma recorrência ativa. Marque "Repete todo mês" ao criar um lançamento.</div>'}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:15px;">👥 Favorecidos</div>
+        <button onclick="abrirModalFavorecido()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Favorecido</button>
+      </div>
+      ${favorecidos.length ? favorecidos.map(f => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+          <span style="font-size:14px;">${f.nome}</span>
+          <button onclick="abrirModalFavorecido('${f.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
+        </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum favorecido ainda. Exemplos: Vivo, Energisa, Condomínio...</div>'}
+    </div>
+    <div class="card" style="padding:16px;">
+      <button onclick="fazerLogout()" class="btn-danger" style="width:100%;text-align:left;">🚪 Sair da conta</button>
+    </div>`;
+}
+
+function abrirModalCategoriaRapido() {
+  // Abre o modal de categoria a partir do modal de lançamento
+  const tipoLanc = getTipoLancamento(); // usa o tipo (despesa/receita) já selecionado no lançamento
+  window._catModoRapido = true;
+  abrirModalCategoria(tipoLanc);
+}
+
+function abrirModalCategoria(tipoDefault = 'despesa') {
+  document.getElementById('cat-id').value = '';
+  document.getElementById('modal-cat-titulo').textContent = 'Nova Categoria';
+  document.getElementById('cat-nome').value = '';
+  document.getElementById('cat-icone').value = '📁';
+  document.getElementById('cat-icone-preview').textContent = '📁';
+  document.getElementById('cat-btn-excluir').classList.add('hidden');
+  document.getElementById('cat-tipo-group').classList.remove('hidden');
+  document.getElementById('cat-parent-group').classList.add('hidden');
+  setCatTipo(tipoDefault);
+  abrirModal('modal-categoria');
+}
+
+function abrirNovaSubcategoria(parentId, tipo) {
+  document.getElementById('cat-id').value = '';
+  document.getElementById('modal-cat-titulo').textContent = 'Nova Subcategoria';
+  document.getElementById('cat-nome').value = '';
+  document.getElementById('cat-icone').value = '📁';
+  document.getElementById('cat-icone-preview').textContent = '📁';
+  document.getElementById('cat-btn-excluir').classList.add('hidden');
+  document.getElementById('cat-tipo-group').classList.add('hidden');
+  document.getElementById('cat-tipo').value = tipo;
+  // Monta select de categorias pai
+  const parentGroup = document.getElementById('cat-parent-group');
+  parentGroup.classList.remove('hidden');
+  const sel = document.getElementById('cat-parent');
+  const pais = categorias.filter(c => c.tipo === tipo && !c.parent_id);
+  if (pais.length === 0) {
+    toast('Crie uma categoria de ' + (tipo==='despesa'?'despesa':'receita') + ' primeiro!', 'erro');
+    return;
+  }
+  sel.innerHTML = '<option value="">Selecione a categoria...</option>';
+  pais.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.icone||'📁') + ' ' + c.nome;
+    sel.appendChild(opt);
+  });
+  if (parentId) sel.value = parentId;
+  renderEmojiGrid(tipo, '📁');
+  abrirModal('modal-categoria');
+}
+
+async function editarCategoria(id) {
+  const c = categorias.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cat-id').value = id;
+  document.getElementById('modal-cat-titulo').textContent = 'Editar ' + (c.parent_id ? 'Subcategoria' : 'Categoria');
+  document.getElementById('cat-nome').value = c.nome;
+  document.getElementById('cat-tipo').value = c.tipo;
+  const icone = c.icone || '📁';
+  document.getElementById('cat-icone').value = icone;
+  document.getElementById('cat-icone-preview').textContent = icone;
+  document.getElementById('cat-btn-excluir').classList.remove('hidden');
+  if (c.parent_id) {
+    // É subcategoria: mostra seletor de pai, esconde tipo
+    document.getElementById('cat-tipo-group').classList.add('hidden');
+    const parentGroup = document.getElementById('cat-parent-group');
+    parentGroup.classList.remove('hidden');
+    const sel = document.getElementById('cat-parent');
+    sel.innerHTML = '';
+    categorias.filter(x => x.tipo === c.tipo && !x.parent_id).forEach(x => {
+      const opt = document.createElement('option');
+      opt.value = x.id;
+      opt.textContent = (x.icone||'📁') + ' ' + x.nome;
+      if (x.id === c.parent_id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } else {
+    // É categoria principal: mostra tipo, esconde pai
+    document.getElementById('cat-tipo-group').classList.remove('hidden');
+    document.getElementById('cat-parent-group').classList.add('hidden');
+    setCatTipo(c.tipo);
+  }
+  renderEmojiGrid(c.tipo, icone);
+  abrirModal('modal-categoria');
+}
+
+async function salvarCategoria() {
+  const nome = document.getElementById('cat-nome').value.trim();
+  const tipo = document.getElementById('cat-tipo').value;
+  const icone = document.getElementById('cat-icone').value || '📁';
+  const parentId = document.getElementById('cat-parent-group').classList.contains('hidden')
+    ? null
+    : (document.getElementById('cat-parent').value || null);
+  if (!nome) { toast('Informe o nome', 'erro'); return; }
+  if (!document.getElementById('cat-parent-group').classList.contains('hidden') && !parentId) {
+    toast('Selecione a categoria', 'erro'); return;
+  }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const id = document.getElementById('cat-id').value;
+  if (id) {
+    await sb.from('categorias').update({ nome, tipo, icone, parent_id: parentId }).eq('id', id);
+    toast('Salvo!', 'ok');
+  } else {
+    const { data: nova } = await sb.from('categorias').insert({ user_id: uid, nome, tipo, icone, parent_id: parentId }).select().single();
+    toast('Criado!', 'ok');
+    await carregarCategorias();
+    // Se foi chamado pelo atalho do modal de lançamento, seleciona a categoria nova automaticamente
+    if (window._catModoRapido && nova) {
+      const tipoLanc = getTipoLancamento();
+      popularSelectCategorias('lanc-categoria', tipoLanc);
+      if (!parentId) {
+        document.getElementById('lanc-categoria').value = nova.id;
+        atualizarSubcategorias();
+      } else {
+        // É subcategoria: seleciona o pai e depois a sub
+        document.getElementById('lanc-categoria').value = parentId;
+        atualizarSubcategorias();
+        setTimeout(() => { document.getElementById('lanc-subcategoria').value = nova.id; }, 50);
+      }
+      window._catModoRapido = false;
+      fecharModal('modal-categoria');
+      return;
+    }
+  }
+  await carregarCategorias();
+  fecharModal('modal-categoria');
+  if (paginaAtual === 'config') renderizarConfig();
+}
+
+async function excluirCategoria() {
+  const id = document.getElementById('cat-id').value;
+  const c = categorias.find(x => x.id === id);
+  const subs = categorias.filter(x => x.parent_id === id);
+  const msg = subs.length > 0
+    ? `Excluir "${c?.nome}" e suas ${subs.length} subcategoria(s)?`
+    : `Excluir "${c?.nome}"?`;
+  if (!confirm(msg)) return;
+  await sb.from('categorias').delete().eq('id', id);
+  toast('Excluído!', 'ok');
+  await carregarCategorias();
+  fecharModal('modal-categoria');
+  renderizarConfig();
+}
+
+// Adicionar aba Config na navegação via clique no holerite (workaround elegante)
+// O holerite já está na nav; configurações ficam acessíveis pelo dashboard (ícone de engrenagem)
+// Adicionar botão de config no header
+document.addEventListener('DOMContentLoaded', () => {
+  // Já inicializa via onAuthStateChange
+});
+</script>
+</body>
+</html>
