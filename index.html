@@ -2880,16 +2880,24 @@ async function salvarCategoria() {
       const tipoLanc = getTipoLancamento();
       popularSelectCategorias('lanc-categoria', tipoLanc);
       if (!parentId) {
+        // É categoria nova — seleciona no form e abre automaticamente o modal de subcategoria
         document.getElementById('lanc-categoria').value = nova.id;
         atualizarSubcategorias();
+        window._catModoRapido = false;
+        fecharModal('modal-categoria');
+        // Pequeno delay para o modal fechar antes de abrir o próximo
+        setTimeout(() => {
+          window._catModoRapido = true;
+          abrirNovaSubcategoria(nova.id, tipoLanc);
+        }, 200);
       } else {
         // É subcategoria: seleciona o pai e depois a sub
         document.getElementById('lanc-categoria').value = parentId;
         atualizarSubcategorias();
         setTimeout(() => { document.getElementById('lanc-subcategoria').value = nova.id; }, 50);
+        window._catModoRapido = false;
+        fecharModal('modal-categoria');
       }
-      window._catModoRapido = false;
-      fecharModal('modal-categoria');
       return;
     }
   }
