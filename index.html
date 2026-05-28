@@ -227,7 +227,10 @@
   <div id="page-cartoes" class="page">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Cartões</h2>
-      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalCartao()">+ Cartão</button>
+      <div style="display:flex;gap:8px;">
+        <button style="width:auto;padding:8px 14px;background:#ede9fe;color:#4f46e5;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;" onclick="abrirEvolucaoAnual()">📊 Evolução</button>
+        <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalCartao()">+ Cartão</button>
+      </div>
     </div>
     <div id="cartoes-content"><div class="spinner"></div></div>
   </div>
@@ -710,6 +713,21 @@
     <div style="margin-top:12px;" id="cat-btn-excluir" class="hidden">
       <button class="btn-danger" style="width:100%;" onclick="excluirCategoria()">🗑 Excluir</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal Evolução Anual de Faturas -->
+<div id="modal-evolucao" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:98vw;max-height:90vh;overflow-y:auto;padding:20px 16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:17px;font-weight:700;">📊 Evolução de Faturas</h3>
+      <button onclick="fecharModal('modal-evolucao')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+      <label style="margin:0;font-size:13px;">Ano:</label>
+      <input type="number" id="evolucao-ano" value="2026" min="2020" max="2099" style="width:80px;padding:6px 10px;font-size:14px;" onchange="carregarEvolucaoAnual()" />
+    </div>
+    <div id="evolucao-content"><div class="spinner"></div></div>
   </div>
 </div>
 
@@ -2135,6 +2153,90 @@ async function salvarCartao() {
   await carregarCartoes();
   fecharModal('modal-cartao');
   renderizarCartoes();
+}
+
+function abrirEvolucaoAnual() {
+  document.getElementById('evolucao-ano').value = anoAtual;
+  abrirModal('modal-evolucao');
+  carregarEvolucaoAnual();
+}
+
+async function carregarEvolucaoAnual() {
+  const ano = parseInt(document.getElementById('evolucao-ano').value);
+  const el = document.getElementById('evolucao-content');
+  el.innerHTML = '<div class="spinner"></div>';
+
+  // Busca todos os lançamentos de cartão do ano
+  const { data } = await sb.from('lancamentos')
+    .select('valor, data, cartao_id')
+    .eq('tipo', 'despesa')
+    .not('cartao_id', 'is', null)
+    .gte('data', `${ano}-01-01`)
+    .lte('data', `${ano}-12-31`);
+
+  const lancamentos = data || [];
+
+  // Monta matriz [mes][cartaoId] = total
+  const matriz = {}; // matriz[mes] = { cartaoId: valor }
+  for (let m = 1; m <= 12; m++) matriz[m] = {};
+  lancamentos.forEach(l => {
+    const mes = parseInt(l.data.split('-')[1]);
+    const cid = l.cartao_id;
+    if (!matriz[mes][cid]) matriz[mes][cid] = 0;
+    matriz[mes][cid] += Number(l.valor);
+  });
+
+  // Totais anuais por cartão
+  const totalAnual = {};
+  cartoes.forEach(c => { totalAnual[c.id] = 0; });
+  for (let m = 1; m <= 12; m++) {
+    cartoes.forEach(c => { totalAnual[c.id] += matriz[m][c.id] || 0; });
+  }
+  const grandTotal = cartoes.reduce((s, c) => s + totalAnual[c.id], 0);
+
+  const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const tdStyle = 'padding:7px 8px;text-align:right;font-size:13px;white-space:nowrap;border-bottom:1px solid #f1f5f9;';
+  const thStyle = 'padding:7px 6px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;text-align:right;white-space:nowrap;border-bottom:2px solid #e2e8f0;';
+
+  // Cabeçalho
+  let thead = `<tr>
+    <th style="${thStyle}text-align:left;">Mês</th>
+    ${cartoes.map(c => `<th style="${thStyle}">${c.nome.replace('Eduardo','Edu').replace('Felipe','Fel')}</th>`).join('')}
+    <th style="${thStyle}color:#dc2626;">Total</th>
+  </tr>`;
+
+  // Linhas mensais
+  let tbody = '';
+  for (let m = 1; m <= 12; m++) {
+    const totalMes = cartoes.reduce((s, c) => s + (matriz[m][c.id] || 0), 0);
+    // Destaca mês atual
+    const isMesAtual = m === mesAtual && ano === anoAtual;
+    const rowBg = isMesAtual ? 'background:#f5f3ff;' : '';
+    tbody += `<tr style="${rowBg}">
+      <td style="${tdStyle}text-align:left;font-weight:${isMesAtual?'700':'500'};color:#374151;">${mesesNomes[m-1]}</td>
+      ${cartoes.map(c => {
+        const v = matriz[m][c.id] || 0;
+        return `<td style="${tdStyle}color:${v>0?'#374151':'#cbd5e1'};">${v > 0 ? R$(v) : '—'}</td>`;
+      }).join('')}
+      <td style="${tdStyle}font-weight:700;color:#dc2626;">${totalMes > 0 ? R$(totalMes) : '—'}</td>
+    </tr>`;
+  }
+
+  // Linha de totais anuais
+  let tfoot = `<tr style="background:#f8fafc;">
+    <td style="${tdStyle}text-align:left;font-weight:700;color:#374151;border-top:2px solid #e2e8f0;">Total ${ano}</td>
+    ${cartoes.map(c => `<td style="${tdStyle}font-weight:700;color:#4f46e5;border-top:2px solid #e2e8f0;">${totalAnual[c.id] > 0 ? R$(totalAnual[c.id]) : '—'}</td>`).join('')}
+    <td style="${tdStyle}font-weight:700;color:#dc2626;font-size:14px;border-top:2px solid #e2e8f0;">${R$(grandTotal)}</td>
+  </tr>`;
+
+  el.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>${thead}</thead>
+        <tbody>${tbody}</tbody>
+        <tfoot>${tfoot}</tfoot>
+      </table>
+    </div>`;
 }
 
 function abrirFaturaDetalhada(cartaoId) {
