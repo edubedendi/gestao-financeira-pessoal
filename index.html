@@ -330,9 +330,12 @@
       </div>
       <div id="lanc-subcategoria-group" class="hidden">
         <label>Subcategoria</label>
-        <select id="lanc-subcategoria">
-          <option value="">Selecione...</option>
-        </select>
+        <div style="display:flex;gap:8px;">
+          <select id="lanc-subcategoria" style="flex:1;">
+            <option value="">Selecione...</option>
+          </select>
+          <button type="button" onclick="abrirModalSubcategoriaRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;" title="Nova subcategoria">+</button>
+        </div>
       </div>
 
       <!-- Forma de Pagamento -->
@@ -2621,6 +2624,7 @@ async function renderizarConfig() {
     </div>
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="font-weight:700;font-size:15px;margin-bottom:12px;">🔁 Recorrências ativas</div>
+      <div style="max-height:280px;overflow-y:auto;padding-right:4px;">
       ${recorrencias.length ? recorrencias.map(r => {
         const nome = r.favorecidos?.nome || r.categorias?.nome || 'Sem nome';
         const icone = r.categorias?.icone || '🔁';
@@ -2634,17 +2638,20 @@ async function renderizarConfig() {
           <button onclick="desativarRecorrencia('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Cancelar</button>
         </div>`;
       }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma recorrência ativa. Marque "Repete todo mês" ao criar um lançamento.</div>'}
+      </div>
     </div>
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div style="font-weight:700;font-size:15px;">👥 Favorecidos</div>
         <button onclick="abrirModalFavorecido()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Favorecido</button>
       </div>
+      <div style="max-height:280px;overflow-y:auto;padding-right:4px;">
       ${favorecidos.length ? favorecidos.map(f => `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;">
           <span style="font-size:14px;">${f.nome}</span>
           <button onclick="abrirModalFavorecido('${f.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
         </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum favorecido ainda. Exemplos: Vivo, Energisa, Condomínio...</div>'}
+      </div>
     </div>
     <div class="card" style="padding:16px;">
       <button onclick="fazerLogout()" class="btn-danger" style="width:100%;text-align:left;">🚪 Sair da conta</button>
@@ -2653,9 +2660,19 @@ async function renderizarConfig() {
 
 function abrirModalCategoriaRapido() {
   // Abre o modal de categoria a partir do modal de lançamento
-  const tipoLanc = getTipoLancamento(); // usa o tipo (despesa/receita) já selecionado no lançamento
+  const tipoLanc = getTipoLancamento();
   window._catModoRapido = true;
   abrirModalCategoria(tipoLanc);
+}
+
+function abrirModalSubcategoriaRapido() {
+  // Abre o modal já no modo subcategoria, com a categoria pai pré-selecionada
+  const catId = document.getElementById('lanc-categoria').value;
+  if (!catId) { toast('Selecione uma categoria primeiro', 'erro'); return; }
+  const tipoLanc = getTipoLancamento();
+  window._catModoRapido = true;
+  // Abre o modal de nova subcategoria com o pai já selecionado
+  abrirNovaSubcategoria(catId, tipoLanc);
 }
 
 function abrirModalCategoria(tipoDefault = 'despesa') {
