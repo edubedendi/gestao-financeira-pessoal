@@ -471,7 +471,11 @@
     </div>
     <div style="margin-bottom:16px;">
       <label>Categoria</label>
-      <select id="orc-categoria"></select>
+      <select id="orc-categoria" onchange="atualizarSubcategoriasOrcamento()"></select>
+    </div>
+    <div id="orc-subcategoria-group" class="hidden" style="margin-bottom:16px;">
+      <label>Subcategoria (opcional)</label>
+      <select id="orc-subcategoria"></select>
     </div>
     <div style="margin-bottom:20px;">
       <label>Valor Planejado (R$)</label>
@@ -1947,7 +1951,7 @@ async function renderizarOrcamento() {
   el.innerHTML = '<div class="spinner"></div>';
 
   const { data: orc } = await sb.from('orcamento')
-    .select('*, categorias(nome,icone,tipo)').eq('mes', mesAtual).eq('ano', anoAtual);
+    .select('*, categorias(id,nome,icone,tipo,parent_id)').eq('mes', mesAtual).eq('ano', anoAtual);
 
   const { data: lanc } = await sb.from('lancamentos')
     .select('valor,categoria_id')
@@ -1969,29 +1973,124 @@ async function renderizarOrcamento() {
     gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor);
   });
 
+  // Separar orçamentos de categorias-pai e subcategorias
+  const orcPorCatId = {};
+  orc.forEach(o => { orcPorCatId[o.categoria_id] = o; });
+
+  // Identificar categorias-pai que têm orçamento direto ou têm subcategorias com orçamento
+  const catsPai = orc.filter(o => !o.categorias?.parent_id);
+  // Orçamentos que são subcategorias (têm parent_id)
+  const orcsSubcat = orc.filter(o => o.categorias?.parent_id);
+  // Pais implícitos: pais de subcategorias que podem não ter orçamento próprio
+  const paisImplicitos = {};
+  orcsSubcat.forEach(o => {
+    const parentId = o.categorias.parent_id;
+    if (!orcPorCatId[parentId]) {
+      // Pai sem orçamento direto
+      const catPai = categorias.find(c => c.id === parentId);
+      if (catPai) paisImplicitos[parentId] = catPai;
+    }
+  });
+
+  // Montar lista de grupos: cada grupo é um pai (com ou sem orçamento direto) + suas subcategorias com orçamento
+  const grupos = [];
+  const paisVistos = new Set();
+
+  // Primeiro: pais com orçamento direto
+  catsPai.forEach(o => {
+    paisVistos.add(o.categoria_id);
+    const subs = orcsSubcat.filter(s => s.categorias.parent_id === o.categoria_id);
+    grupos.push({ pai: o, subs });
+  });
+  // Depois: pais implícitos (sem orçamento direto, mas com subcategorias orçadas)
+  Object.values(paisImplicitos).forEach(catPai => {
+    if (paisVistos.has(catPai.id)) return;
+    paisVistos.add(catPai.id);
+    const subs = orcsSubcat.filter(s => s.categorias.parent_id === catPai.id);
+    grupos.push({ pai: null, catPaiInfo: catPai, subs });
+  });
+  // Subcategorias órfãs sem pai encontrado (edge case)
+  orcsSubcat.forEach(o => {
+    const parentId = o.categorias.parent_id;
+    if (!paisVistos.has(parentId)) {
+      grupos.push({ pai: o, subs: [] });
+    }
+  });
+
   let totalPlanejado = 0, totalGasto = 0;
   let html = '<div>';
-  orc.forEach(o => {
-    const gasto = gastosPorCat[o.categoria_id] || 0;
-    const pct = o.valor_planejado > 0 ? Math.min((gasto / o.valor_planejado) * 100, 100) : 0;
-    const pctReal = o.valor_planejado > 0 ? (gasto / o.valor_planejado) * 100 : 0;
-    totalPlanejado += Number(o.valor_planejado);
-    totalGasto += gasto;
+
+  grupos.forEach(({ pai, catPaiInfo, subs }) => {
+    // Gasto e planejado do pai
+    const gastoPai = pai ? (gastosPorCat[pai.categoria_id] || 0) : 0;
+    const planejadoPai = pai ? Number(pai.valor_planejado) : 0;
+
+    // Gasto e planejado das subcategorias
+    const gastoSubs = subs.reduce((acc, s) => acc + (gastosPorCat[s.categoria_id] || 0), 0);
+    const planejadoSubs = subs.reduce((acc, s) => acc + Number(s.valor_planejado), 0);
+
+    const gastoTotal = gastoPai + gastoSubs;
+    const planejadoTotal = planejadoPai + planejadoSubs;
+
+    totalPlanejado += planejadoTotal;
+    totalGasto += gastoTotal;
+
+    const pct = planejadoTotal > 0 ? Math.min((gastoTotal / planejadoTotal) * 100, 100) : 0;
+    const pctReal = planejadoTotal > 0 ? (gastoTotal / planejadoTotal) * 100 : 0;
     const cor = progressCor(pctReal);
+
+    const catInfo = pai ? pai.categorias : catPaiInfo;
+    const nomeExibido = `${catInfo?.icone || '📁'} ${catInfo?.nome}`;
+
+    html += `<div class="card" style="padding:16px;margin-bottom:12px;">`;
+
+    // Cabeçalho do grupo (categoria-pai)
+    if (pai) {
+      html += `<div style="cursor:pointer;" onclick="editarOrcamento('${pai.id}','${pai.categoria_id}',${pai.valor_planejado})">`;
+    } else {
+      html += `<div>`;
+    }
     html += `
-      <div class="card" style="padding:16px;margin-bottom:12px;cursor:pointer;" onclick="editarOrcamento('${o.id}','${o.categoria_id}',${o.valor_planejado})">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-          <div style="font-weight:600;">${o.categorias?.icone || '📁'} ${o.categorias?.nome}</div>
-          <div class="${pctReal >= 100 ? 'badge-vermelho' : pctReal >= 80 ? 'badge-amarelo' : 'badge-verde'}">${Math.round(pctReal)}%</div>
-        </div>
-        <div class="progress-bar" style="margin-bottom:8px;">
-          <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;">
-          <span>Gasto: <strong style="color:${cor}">${R$(gasto)}</strong></span>
-          <span>Planejado: <strong>${R$(o.valor_planejado)}</strong></span>
-        </div>
-      </div>`;
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-weight:700;font-size:15px;">${nomeExibido}</div>
+        <div class="${pctReal >= 100 ? 'badge-vermelho' : pctReal >= 80 ? 'badge-amarelo' : 'badge-verde'}">${Math.round(pctReal)}%</div>
+      </div>
+      <div class="progress-bar" style="margin-bottom:8px;">
+        <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:${subs.length > 0 ? '12px' : '0'};">
+        <span>Gasto: <strong style="color:${cor}">${R$(gastoTotal)}</strong></span>
+        <span>Planejado: <strong>${R$(planejadoTotal)}</strong></span>
+      </div>
+    </div>`;
+
+    // Subcategorias
+    if (subs.length > 0) {
+      html += `<div style="border-top:1px solid #f1f5f9;padding-top:10px;display:flex;flex-direction:column;gap:8px;">`;
+      subs.forEach(s => {
+        const gastoS = gastosPorCat[s.categoria_id] || 0;
+        const pctS = s.valor_planejado > 0 ? Math.min((gastoS / s.valor_planejado) * 100, 100) : 0;
+        const pctSReal = s.valor_planejado > 0 ? (gastoS / s.valor_planejado) * 100 : 0;
+        const corS = progressCor(pctSReal);
+        html += `
+          <div style="cursor:pointer;padding:10px 12px;background:#f8fafc;border-radius:8px;" onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome}</div>
+              <div style="font-size:11px;font-weight:600;color:${corS};">${Math.round(pctSReal)}%</div>
+            </div>
+            <div class="progress-bar" style="height:5px;margin-bottom:5px;">
+              <div class="progress-fill" style="width:${pctS}%;background:${corS};"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;">
+              <span>${R$(gastoS)}</span>
+              <span>${R$(s.valor_planejado)}</span>
+            </div>
+          </div>`;
+      });
+      html += `</div>`;
+    }
+
+    html += `</div>`;
   });
 
   const pctTotal = totalPlanejado > 0 ? (totalGasto / totalPlanejado) * 100 : 0;
@@ -2008,23 +2107,62 @@ async function renderizarOrcamento() {
   el.innerHTML = html;
 }
 
+function atualizarSubcategoriasOrcamento() {
+  const catId = document.getElementById('orc-categoria').value;
+  const subGroup = document.getElementById('orc-subcategoria-group');
+  const subSel = document.getElementById('orc-subcategoria');
+  if (!catId) { subGroup.classList.add('hidden'); return; }
+  const subs = categorias.filter(c => c.parent_id === catId);
+  if (subs.length === 0) { subGroup.classList.add('hidden'); return; }
+  subSel.innerHTML = '<option value="">Nenhuma (orçar a categoria toda)</option>';
+  subs.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.icone || '📁') + ' ' + c.nome;
+    subSel.appendChild(opt);
+  });
+  subGroup.classList.remove('hidden');
+}
+
 function abrirModalOrcamento(catId = '', valor = '') {
   popularSelectCategorias('orc-categoria', 'despesa');
-  if (catId) document.getElementById('orc-categoria').value = catId;
+  document.getElementById('orc-subcategoria-group').classList.add('hidden');
+  document.getElementById('orc-subcategoria').innerHTML = '<option value="">Nenhuma (orçar a categoria toda)</option>';
+  if (catId) {
+    document.getElementById('orc-categoria').value = catId;
+    atualizarSubcategoriasOrcamento();
+  }
   document.getElementById('orc-valor').value = valor;
   abrirModal('modal-orcamento');
 }
 
-function editarOrcamento(id, catId, valor) {
-  abrirModalOrcamento(catId, valor);
+function editarOrcamento(id, catId, valor, parentId = null) {
+  popularSelectCategorias('orc-categoria', 'despesa');
+  const subGroup = document.getElementById('orc-subcategoria-group');
+  const subSel = document.getElementById('orc-subcategoria');
+  subGroup.classList.add('hidden');
+
+  if (parentId) {
+    // É subcategoria: selecionar o pai e então a sub
+    document.getElementById('orc-categoria').value = parentId;
+    atualizarSubcategoriasOrcamento();
+    subSel.value = catId;
+  } else {
+    document.getElementById('orc-categoria').value = catId;
+    atualizarSubcategoriasOrcamento();
+  }
+  document.getElementById('orc-valor').value = valor;
+  abrirModal('modal-orcamento');
 }
 
 async function salvarOrcamento() {
   const catId = document.getElementById('orc-categoria').value;
+  const subId = document.getElementById('orc-subcategoria').value;
+  const categoriaFinal = subId || catId;
   const valor = parseFloat(document.getElementById('orc-valor').value);
-  if (!catId || !valor) { toast('Preencha categoria e valor', 'erro'); return; }
+  if (!categoriaFinal || !valor) { toast('Preencha categoria e valor', 'erro'); return; }
   const uid = (await sb.auth.getUser()).data.user.id;
-  const { error } = await sb.from('orcamento').upsert({ user_id: uid, categoria_id: catId, mes: mesAtual, ano: anoAtual, valor_planejado: valor }, { onConflict: 'user_id,categoria_id,mes,ano' });
+  const { error } = await sb.from('orcamento').upsert({ user_id: uid, categoria_id: categoriaFinal, mes: mesAtual, ano: anoAtual, valor_planejado: valor }, { onConflict: 'user_id,categoria_id,mes,ano' });
   if (error) { toast('Erro ao salvar', 'erro'); return; }
   toast('Orçamento salvo!', 'ok');
   fecharModal('modal-orcamento');
