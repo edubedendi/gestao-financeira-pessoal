@@ -2343,29 +2343,22 @@ async function renderizarHolerite() {
   const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-  // Busca lançamentos das categorias de holerite (proventos e descontos reais)
-  const holCatIds = holCats.filter(c => c.holerite_tipo !== 'desconto_fiscal').map(c => c.id);
+  // Busca todos os lançamentos de categorias de holerite (proventos, descontos reais e fiscais)
+  const holCatIds = holCats.map(c => c.id);
   let lancamentos_hol = [];
   if (holCatIds.length > 0) {
     const { data: lancs } = await sb.from('lancamentos').select('*, categorias(nome, icone, holerite_tipo)').in('categoria_id', holCatIds).gte('data', dataInicio).lte('data', dataFim);
     lancamentos_hol = lancs || [];
   }
 
-  // Busca descontos fiscais do mês (holerite_itens)
-  const { data: hMes } = await sb.from('holerites').select('id').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
-  let fiscalItens = [];
-  if (hMes) {
-    const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', hMes.id);
-    fiscalItens = itens || [];
-  }
-
   const provLancs = lancamentos_hol.filter(l => l.categorias?.holerite_tipo === 'provento');
   const descLancs = lancamentos_hol.filter(l => l.categorias?.holerite_tipo === 'desconto');
+  const fiscalLancs = lancamentos_hol.filter(l => l.categorias?.holerite_tipo === 'desconto_fiscal');
   const totalProventos = provLancs.reduce((s, l) => s + Number(l.valor), 0);
   const totalDescontos = descLancs.reduce((s, l) => s + Number(l.valor), 0);
-  const totalFiscal = fiscalItens.reduce((s, i) => s + Number(i.valor), 0);
+  const totalFiscal = fiscalLancs.reduce((s, l) => s + Number(l.valor), 0);
   const liquido = totalProventos - totalDescontos - totalFiscal;
-  const hasData = provLancs.length > 0 || descLancs.length > 0 || fiscalItens.length > 0;
+  const hasData = provLancs.length > 0 || descLancs.length > 0 || fiscalLancs.length > 0;
 
   if (!hasData) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
@@ -2401,11 +2394,11 @@ async function renderizarHolerite() {
     html += `</div>`;
   }
 
-  if (fiscalItens.length > 0) {
+  if (fiscalLancs.length > 0) {
     html += `<div style="margin-bottom:12px;">
       <div style="font-size:11px;color:#ea580c;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Descontos Fiscais</div>`;
-    fiscalItens.forEach(i => {
-      html += `<div class="item-row"><span style="font-size:14px;">${i.nome}</span><span style="color:#ea580c;font-weight:600;">- ${R$(i.valor)}</span></div>`;
+    fiscalLancs.forEach(l => {
+      html += `<div class="item-row"><span style="font-size:14px;">${l.categorias?.icone||''} ${l.categorias?.nome||l.descricao}</span><span style="color:#ea580c;font-weight:600;">- ${R$(l.valor)}</span></div>`;
     });
     html += `</div>`;
   }
@@ -2425,16 +2418,19 @@ async function renderizarHolerite() {
     provAcum = (provAnual||[]).reduce((s,l)=>s+Number(l.valor),0);
   }
 
-  const { data: holeritesMes } = await sb.from('holerites').select('id').eq('ano', anoAtual).lte('mes', mesAtual);
-  let itensFiscalAnual = [];
-  const hIds = (holeritesMes||[]).map(h => h.id);
-  if (hIds.length > 0) {
-    const { data: fi } = await sb.from('holerite_itens').select('nome, valor').in('holerite_id', hIds);
-    itensFiscalAnual = fi || [];
+  // Fiscal acumulado no ano: lê lançamentos das categorias desconto_fiscal
+  const fiscalCatIds = holCats.filter(c => c.holerite_tipo === 'desconto_fiscal').map(c => c.id);
+  let fiscalAnualLancs = [];
+  if (fiscalCatIds.length > 0) {
+    const { data: fa } = await sb.from('lancamentos').select('valor, categoria_id, categorias(nome)').in('categoria_id', fiscalCatIds).gte('data', `${anoAtual}-01-01`).lte('data', dataFim);
+    fiscalAnualLancs = fa || [];
   }
 
   const fiscalPorNome = {};
-  itensFiscalAnual.forEach(i => { fiscalPorNome[i.nome] = (fiscalPorNome[i.nome]||0) + Number(i.valor); });
+  fiscalAnualLancs.forEach(l => {
+    const nome = l.categorias?.nome || l.categoria_id;
+    fiscalPorNome[nome] = (fiscalPorNome[nome]||0) + Number(l.valor);
+  });
 
   const inssAnual = Object.entries(fiscalPorNome).filter(([n]) => n.toUpperCase().includes('INSS')).reduce((s,[,v])=>s+v,0);
   const irrfAnual = Object.entries(fiscalPorNome).filter(([n]) => n.toUpperCase().includes('IRRF')||n.toUpperCase().includes('IMPOSTO DE RENDA')).reduce((s,[,v])=>s+v,0);
@@ -2474,21 +2470,12 @@ async function abrirModalHolerite() {
   const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-  // Busca lançamentos existentes de categorias de holerite neste mês
-  const holCatIds = holCats.filter(c => c.holerite_tipo !== 'desconto_fiscal').map(c => c.id);
+  // Busca todos os lançamentos de categorias de holerite neste mês (proventos, descontos e fiscais)
+  const holCatIds = holCats.map(c => c.id);
   let existingLancs = {};
   if (holCatIds.length > 0) {
     const { data: lancs } = await sb.from('lancamentos').select('categoria_id, valor').in('categoria_id', holCatIds).gte('data', dataInicio).lte('data', dataFim);
     (lancs||[]).forEach(l => { existingLancs[l.categoria_id] = Number(l.valor); });
-  }
-
-  // Busca descontos fiscais existentes (holerite_itens)
-  const { data: hExist } = await sb.from('holerites').select('id').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
-  let existingFiscal = {};
-  if (hExist) {
-    document.getElementById('holerite-id').value = hExist.id;
-    const { data: itens } = await sb.from('holerite_itens').select('nome, valor').eq('holerite_id', hExist.id);
-    (itens||[]).forEach(i => { existingFiscal[i.nome] = Number(i.valor); });
   }
 
   const proventos = holCats.filter(c => c.holerite_tipo === 'provento');
@@ -2526,9 +2513,9 @@ async function abrirModalHolerite() {
   if (fiscais.length > 0) {
     html += `<div style="margin-bottom:18px;">
       <div style="font-size:11px;font-weight:700;color:#ea580c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">📋 Descontos Fiscais</div>
-      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">Não geram lançamentos — alimentam o resumo de IR</div>`;
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">Geram lançamentos de despesa e alimentam o resumo de IR</div>`;
     fiscais.forEach(c => {
-      const val = existingFiscal[c.nome] || '';
+      const val = existingLancs[c.id] || '';
       html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
         <label style="flex:1;font-size:14px;margin:0;">${c.icone||'📋'} ${c.nome}</label>
         <input type="number" id="hol-val-${c.id}" value="${val}" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
@@ -2568,13 +2555,13 @@ async function salvarHolerite() {
   const dataLanc = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-  // Apaga lançamentos existentes de categorias de holerite neste mês
-  const holCatIds = [...proventos, ...descontos].map(c => c.id);
+  // Apaga todos os lançamentos de categorias de holerite neste mês (proventos, descontos e fiscais)
+  const holCatIds = [...proventos, ...descontos, ...fiscais].map(c => c.id);
   if (holCatIds.length > 0) {
     await sb.from('lancamentos').delete().in('categoria_id', holCatIds).gte('data', dataLanc).lte('data', dataFim).eq('user_id', uid);
   }
 
-  // Cria novos lançamentos
+  // Cria novos lançamentos — proventos como receita, descontos e fiscais como despesa
   const novosLancs = [];
   proventos.forEach(c => {
     const val = parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0;
@@ -2584,26 +2571,11 @@ async function salvarHolerite() {
     const val = parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0;
     if (val > 0) novosLancs.push({ user_id: uid, data: dataLanc, descricao: c.nome, valor: val, tipo: 'despesa', categoria_id: c.id });
   });
+  fiscais.forEach(c => {
+    const val = parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0;
+    if (val > 0) novosLancs.push({ user_id: uid, data: dataLanc, descricao: c.nome, valor: val, tipo: 'despesa', categoria_id: c.id });
+  });
   if (novosLancs.length > 0) await sb.from('lancamentos').insert(novosLancs);
-
-  // Salva descontos fiscais em holerite_itens
-  const idExistente = document.getElementById('holerite-id').value;
-  let holeriteId = idExistente;
-  if (fiscais.length > 0) {
-    if (idExistente) {
-      await sb.from('holerite_itens').delete().eq('holerite_id', idExistente);
-    } else {
-      const { data: hNovo } = await sb.from('holerites').insert({ user_id: uid, mes: mesAtual, ano: anoAtual }).select().single();
-      holeriteId = hNovo.id;
-    }
-    const fiscalItems = fiscais.map((c, idx) => ({
-      holerite_id: holeriteId, nome: c.nome, tipo: 'desconto',
-      valor: parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0, ordem: idx
-    })).filter(i => i.valor > 0);
-    if (fiscalItems.length > 0) await sb.from('holerite_itens').insert(fiscalItems);
-  } else if (idExistente) {
-    await sb.from('holerite_itens').delete().eq('holerite_id', idExistente);
-  }
 
   toast('Holerite salvo!', 'ok');
   fecharModal('modal-holerite');
