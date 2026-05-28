@@ -2355,7 +2355,7 @@ async function renderizarHolerite() {
   const { data: hMes } = await sb.from('holerites').select('id').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
   let fiscalItens = [];
   if (hMes) {
-    const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', hMes.id).eq('tipo', 'desconto_fiscal');
+    const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', hMes.id);
     fiscalItens = itens || [];
   }
 
@@ -2429,7 +2429,7 @@ async function renderizarHolerite() {
   let itensFiscalAnual = [];
   const hIds = (holeritesMes||[]).map(h => h.id);
   if (hIds.length > 0) {
-    const { data: fi } = await sb.from('holerite_itens').select('nome, valor').in('holerite_id', hIds).eq('tipo', 'desconto_fiscal');
+    const { data: fi } = await sb.from('holerite_itens').select('nome, valor').in('holerite_id', hIds);
     itensFiscalAnual = fi || [];
   }
 
@@ -2597,7 +2597,7 @@ async function salvarHolerite() {
       holeriteId = hNovo.id;
     }
     const fiscalItems = fiscais.map((c, idx) => ({
-      holerite_id: holeriteId, nome: c.nome, tipo: 'desconto_fiscal',
+      holerite_id: holeriteId, nome: c.nome, tipo: 'desconto',
       valor: parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0, ordem: idx
     })).filter(i => i.valor > 0);
     if (fiscalItems.length > 0) await sb.from('holerite_itens').insert(fiscalItems);
