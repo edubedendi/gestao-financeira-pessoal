@@ -535,37 +535,20 @@
 
 <!-- Modal Holerite -->
 <div id="modal-holerite" class="modal-overlay hidden">
-  <div class="modal-box">
+  <div class="modal-box" style="max-height:90vh;overflow-y:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <h3 style="margin:0;font-size:18px;font-weight:700;">Lançar Holerite</h3>
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Holerite — <span id="hol-mes-titulo"></span></h3>
       <button onclick="fecharModal('modal-holerite')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
     <input type="hidden" id="holerite-id" />
-    <div id="holerite-itens-lista" style="margin-bottom:16px;"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:16px;align-items:end;">
-      <div>
-        <label>Nome</label>
-        <input type="text" id="hol-item-nome" placeholder="Ex: Salário Base" />
-      </div>
-      <div>
-        <label>Valor (R$)</label>
-        <input type="number" id="hol-item-valor" placeholder="0,00" step="0.01" min="0" />
-      </div>
-      <div style="display:grid;gap:4px;">
-        <label>Tipo</label>
-        <select id="hol-item-tipo">
-          <option value="provento">Provento</option>
-          <option value="desconto">Desconto</option>
-        </select>
-      </div>
-    </div>
-    <button class="btn-secondary" style="width:100%;margin-bottom:20px;" onclick="adicionarItemHolerite()">+ Adicionar Item</button>
+    <div id="holerite-form-content" style="margin-bottom:16px;"></div>
     <div style="background:#f8fafc;border-radius:10px;padding:14px;margin-bottom:20px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Bruto:</span><span id="hol-bruto" style="font-weight:600;">R$ 0,00</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Proventos:</span><span id="hol-bruto" style="font-weight:600;">R$ 0,00</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Descontos:</span><span id="hol-descontos" style="font-weight:600;color:#dc2626;">R$ 0,00</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Descontos Fiscais:</span><span id="hol-fiscal" style="font-weight:600;color:#ea580c;">R$ 0,00</span></div>
       <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span id="hol-liquido" style="font-weight:700;color:#059669;font-size:18px;">R$ 0,00</span></div>
     </div>
-    <button class="btn-primary" onclick="salvarHolerite()">Salvar e Lançar como Receita</button>
+    <button class="btn-primary" style="width:100%;" onclick="salvarHolerite()">Salvar Holerite</button>
   </div>
 </div>
 
@@ -705,6 +688,17 @@
         <input type="hidden" id="cat-icone" value="📁" />
       </div>
 
+      <!-- Holerite -->
+      <div>
+        <label>Pertence ao Holerite?</label>
+        <select id="cat-holerite-tipo" style="margin-top:4px;">
+          <option value="">Não</option>
+          <option value="provento">💼 Provento (receita do salário)</option>
+          <option value="desconto">💊 Desconto (despesa real)</option>
+          <option value="desconto_fiscal">📋 Desconto Fiscal (INSS / IRRF)</option>
+        </select>
+      </div>
+
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
       <button class="btn-secondary" onclick="fecharModal('modal-categoria')">Cancelar</button>
@@ -805,7 +799,7 @@ let categorias = [];
 let cartoes = [];
 let favorecidos = [];
 let recorrencias = [];
-let holerite_itens_temp = [];
+
 let lancamentoEditandoId = null;
 let paginaAtual = 'dashboard';
 let appInicializado = false; // Guard contra múltiplas inicializações
@@ -2334,145 +2328,287 @@ async function excluirCartao() {
 async function renderizarHolerite() {
   const el = document.getElementById('holerite-content');
   el.innerHTML = '<div class="spinner"></div>';
-  const { data: h } = await sb.from('holerites').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
-  if (!h) {
-    // Verifica se tem holerite do mês anterior para oferecer cópia
-    const mesAnt = mesAtual === 1 ? 12 : mesAtual - 1;
-    const anoAnt = mesAtual === 1 ? anoAtual - 1 : anoAtual;
-    const { data: hAnt } = await sb.from('holerites').select('*').eq('mes', mesAnt).eq('ano', anoAnt).maybeSingle();
+
+  const holCats = categorias.filter(c => c.holerite_tipo);
+  if (holCats.length === 0) {
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">⚙️</div>
+      <div style="font-size:15px;color:#374151;font-weight:600;margin-bottom:4px;">Configure as categorias do holerite</div>
+      <div style="font-size:13px;margin-bottom:20px;">Vá em Configurações > Categorias e marque quais pertencem ao holerite</div>
+      <button onclick="navegarPara('config')" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer;">⚙️ Ir para Configurações</button>
+    </div>`;
+    return;
+  }
+
+  const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
+  const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
+
+  // Busca lançamentos das categorias de holerite (proventos e descontos reais)
+  const holCatIds = holCats.filter(c => c.holerite_tipo !== 'desconto_fiscal').map(c => c.id);
+  let lancamentos_hol = [];
+  if (holCatIds.length > 0) {
+    const { data: lancs } = await sb.from('lancamentos').select('*, categorias(nome, icone, holerite_tipo)').in('categoria_id', holCatIds).gte('data', dataInicio).lte('data', dataFim);
+    lancamentos_hol = lancs || [];
+  }
+
+  // Busca descontos fiscais do mês (holerite_itens)
+  const { data: hMes } = await sb.from('holerites').select('id').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
+  let fiscalItens = [];
+  if (hMes) {
+    const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', hMes.id).eq('tipo', 'desconto_fiscal');
+    fiscalItens = itens || [];
+  }
+
+  const provLancs = lancamentos_hol.filter(l => l.categorias?.holerite_tipo === 'provento');
+  const descLancs = lancamentos_hol.filter(l => l.categorias?.holerite_tipo === 'desconto');
+  const totalProventos = provLancs.reduce((s, l) => s + Number(l.valor), 0);
+  const totalDescontos = descLancs.reduce((s, l) => s + Number(l.valor), 0);
+  const totalFiscal = fiscalItens.reduce((s, i) => s + Number(i.valor), 0);
+  const liquido = totalProventos - totalDescontos - totalFiscal;
+  const hasData = provLancs.length > 0 || descLancs.length > 0 || fiscalItens.length > 0;
+
+  if (!hasData) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
       <div style="font-size:40px;margin-bottom:12px;">📄</div>
       <div style="font-size:15px;color:#374151;font-weight:600;margin-bottom:4px;">${meses[mesAtual-1]} ${anoAtual}</div>
       <div style="font-size:13px;margin-bottom:20px;">Nenhum holerite lançado ainda.</div>
-      ${hAnt ? `<button onclick="copiarHoleriteAnterior('${hAnt.id}')" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer;width:100%;margin-bottom:10px;">📋 Copiar de ${meses[mesAnt-1]} ${anoAnt}</button>` : ''}
-      <button onclick="abrirModalHolerite()" style="background:${hAnt?'#f1f5f9':'#4f46e5'};color:${hAnt?'#374151':'white'};border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer;width:100%;">+ Lançar do zero</button>
+      <button onclick="abrirModalHolerite()" style="background:#4f46e5;color:white;border:none;border-radius:10px;padding:12px 20px;font-size:14px;cursor:pointer;width:100%;">+ Lançar Holerite</button>
     </div>`;
     return;
   }
-  const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', h.id).order('ordem');
-  const proventos = (itens||[]).filter(i=>i.tipo==='provento').reduce((s,i)=>s+Number(i.valor),0);
-  const descontos = (itens||[]).filter(i=>i.tipo==='desconto').reduce((s,i)=>s+Number(i.valor),0);
-  const liquido = proventos - descontos;
 
   let html = `<div class="card" style="padding:20px;margin-bottom:14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div style="font-weight:700;font-size:16px;">📄 ${meses[mesAtual-1]} ${anoAtual}</div>
-      <button onclick="editarHolerite('${h.id}')" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
-    </div>
-    <div style="margin-bottom:12px;">
-      <div style="font-size:12px;color:#64748b;font-weight:500;margin-bottom:8px;">PROVENTOS</div>`;
-  (itens||[]).filter(i=>i.tipo==='provento').forEach(i => {
-    html += `<div class="item-row"><span style="font-size:14px;">${i.nome}</span><span class="valor-positivo">${R$(i.valor)}</span></div>`;
+      <button onclick="abrirModalHolerite()" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
+    </div>`;
+
+  if (provLancs.length > 0) {
+    html += `<div style="margin-bottom:12px;">
+      <div style="font-size:11px;color:#059669;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">💼 Proventos</div>`;
+    provLancs.forEach(l => {
+      html += `<div class="item-row"><span style="font-size:14px;">${l.categorias?.icone||''} ${l.categorias?.nome||l.descricao}</span><span class="valor-positivo">${R$(l.valor)}</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (descLancs.length > 0) {
+    html += `<div style="margin-bottom:12px;">
+      <div style="font-size:11px;color:#dc2626;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">💊 Descontos</div>`;
+    descLancs.forEach(l => {
+      html += `<div class="item-row"><span style="font-size:14px;">${l.categorias?.icone||''} ${l.categorias?.nome||l.descricao}</span><span class="valor-negativo">- ${R$(l.valor)}</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (fiscalItens.length > 0) {
+    html += `<div style="margin-bottom:12px;">
+      <div style="font-size:11px;color:#ea580c;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📋 Descontos Fiscais</div>`;
+    fiscalItens.forEach(i => {
+      html += `<div class="item-row"><span style="font-size:14px;">${i.nome}</span><span style="color:#ea580c;font-weight:600;">- ${R$(i.valor)}</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  html += `<div style="background:#f8fafc;border-radius:10px;padding:14px;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Total Proventos:</span><span style="font-weight:600;">${R$(totalProventos)}</span></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Total Descontos:</span><span style="font-weight:600;color:#dc2626;">- ${R$(totalDescontos)}</span></div>
+    ${totalFiscal > 0 ? `<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Descontos Fiscais:</span><span style="font-weight:600;color:#ea580c;">- ${R$(totalFiscal)}</span></div>` : ''}
+    <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span style="font-weight:700;color:#059669;font-size:18px;">${R$(liquido)}</span></div>
+  </div></div>`;
+
+  // ── Resumo IR acumulado no ano ─────────────────────────────────
+  const provCatIds = holCats.filter(c => c.holerite_tipo === 'provento').map(c => c.id);
+  let provAcum = 0;
+  if (provCatIds.length > 0) {
+    const { data: provAnual } = await sb.from('lancamentos').select('valor').in('categoria_id', provCatIds).gte('data', `${anoAtual}-01-01`).lte('data', dataFim);
+    provAcum = (provAnual||[]).reduce((s,l)=>s+Number(l.valor),0);
+  }
+
+  const { data: holeritesMes } = await sb.from('holerites').select('id').eq('ano', anoAtual).lte('mes', mesAtual);
+  let itensFiscalAnual = [];
+  const hIds = (holeritesMes||[]).map(h => h.id);
+  if (hIds.length > 0) {
+    const { data: fi } = await sb.from('holerite_itens').select('nome, valor').in('holerite_id', hIds).eq('tipo', 'desconto_fiscal');
+    itensFiscalAnual = fi || [];
+  }
+
+  const fiscalPorNome = {};
+  itensFiscalAnual.forEach(i => { fiscalPorNome[i.nome] = (fiscalPorNome[i.nome]||0) + Number(i.valor); });
+
+  const inssAnual = Object.entries(fiscalPorNome).filter(([n]) => n.toUpperCase().includes('INSS')).reduce((s,[,v])=>s+v,0);
+  const irrfAnual = Object.entries(fiscalPorNome).filter(([n]) => n.toUpperCase().includes('IRRF')||n.toUpperCase().includes('IMPOSTO DE RENDA')).reduce((s,[,v])=>s+v,0);
+  const baseCalculo = Math.max(0, provAcum - inssAnual);
+
+  html += `<div class="card" style="padding:20px;margin-bottom:14px;border-left:4px solid #f59e0b;">
+    <div style="font-weight:700;font-size:15px;margin-bottom:14px;">📊 Resumo IR — Jan a ${meses[mesAtual-1]} ${anoAtual}</div>
+    <div style="display:grid;gap:8px;">
+      <div style="display:flex;justify-content:space-between;"><span style="color:#64748b;font-size:13px;">Rendimentos brutos acumulados</span><span style="font-weight:600;color:#059669;">${R$(provAcum)}</span></div>`;
+
+  if (inssAnual > 0) html += `<div style="display:flex;justify-content:space-between;"><span style="color:#64748b;font-size:13px;">INSS retido acumulado</span><span style="font-weight:600;color:#ea580c;">- ${R$(inssAnual)}</span></div>`;
+  if (irrfAnual > 0) html += `<div style="display:flex;justify-content:space-between;"><span style="color:#64748b;font-size:13px;">IRRF retido acumulado</span><span style="font-weight:600;color:#dc2626;">- ${R$(irrfAnual)}</span></div>`;
+
+  Object.entries(fiscalPorNome).forEach(([nome, val]) => {
+    if (!nome.toUpperCase().includes('INSS') && !nome.toUpperCase().includes('IRRF') && !nome.toUpperCase().includes('IMPOSTO DE RENDA')) {
+      html += `<div style="display:flex;justify-content:space-between;"><span style="color:#64748b;font-size:13px;">${nome} acumulado</span><span style="font-weight:600;color:#ea580c;">- ${R$(val)}</span></div>`;
+    }
   });
-  html += `</div><div style="margin-bottom:12px;">
-    <div style="font-size:12px;color:#64748b;font-weight:500;margin-bottom:8px;">DESCONTOS</div>`;
-  (itens||[]).filter(i=>i.tipo==='desconto').forEach(i => {
-    html += `<div class="item-row"><span style="font-size:14px;">${i.nome}</span><span class="valor-negativo">- ${R$(i.valor)}</span></div>`;
-  });
-  html += `</div>
-    <div style="background:#f8fafc;border-radius:10px;padding:14px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Total Bruto:</span><span style="font-weight:600;">${R$(proventos)}</span></div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#64748b;">Total Descontos:</span><span style="font-weight:600;color:#dc2626;">- ${R$(descontos)}</span></div>
-      <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span style="font-weight:700;color:#059669;font-size:18px;">${R$(liquido)}</span></div>
+
+  html += `<div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;margin-top:2px;"><span style="font-size:13px;font-weight:600;">Base de cálculo IRRF acumulada</span><span style="font-weight:700;">${R$(baseCalculo)}</span></div>
     </div>
   </div>`;
+
   el.innerHTML = html;
 }
 
 async function abrirModalHolerite() {
-  holerite_itens_temp = [];
+  const holCats = categorias.filter(c => c.holerite_tipo);
+  if (holCats.length === 0) {
+    toast('Configure categorias de holerite em Configurações > Categorias', 'erro');
+    return;
+  }
+
+  document.getElementById('hol-mes-titulo').textContent = `${meses[mesAtual-1]} ${anoAtual}`;
   document.getElementById('holerite-id').value = '';
-  renderizarItensHolerite();
-  abrirModal('modal-holerite');
-}
 
-async function editarHolerite(id) {
-  const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', id).order('ordem');
-  holerite_itens_temp = (itens||[]).map(i => ({ nome: i.nome, tipo: i.tipo, valor: Number(i.valor) }));
-  document.getElementById('holerite-id').value = id;
-  renderizarItensHolerite();
-  abrirModal('modal-holerite');
-}
+  const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
+  const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-async function copiarHoleriteAnterior(hIdAnt) {
-  const { data: itens } = await sb.from('holerite_itens').select('*').eq('holerite_id', hIdAnt).order('ordem');
-  // Carrega os itens do mês anterior com valores zerados para o usuário ajustar
-  holerite_itens_temp = (itens||[]).map(i => ({ nome: i.nome, tipo: i.tipo, valor: Number(i.valor) }));
-  document.getElementById('holerite-id').value = '';
-  renderizarItensHolerite();
-  toast('Itens carregados — ajuste os valores e salve!', 'ok');
-  abrirModal('modal-holerite');
-}
+  // Busca lançamentos existentes de categorias de holerite neste mês
+  const holCatIds = holCats.filter(c => c.holerite_tipo !== 'desconto_fiscal').map(c => c.id);
+  let existingLancs = {};
+  if (holCatIds.length > 0) {
+    const { data: lancs } = await sb.from('lancamentos').select('categoria_id, valor').in('categoria_id', holCatIds).gte('data', dataInicio).lte('data', dataFim);
+    (lancs||[]).forEach(l => { existingLancs[l.categoria_id] = Number(l.valor); });
+  }
 
-function adicionarItemHolerite() {
-  const nome = document.getElementById('hol-item-nome').value.trim();
-  const valor = parseFloat(document.getElementById('hol-item-valor').value);
-  const tipo = document.getElementById('hol-item-tipo').value;
-  if (!nome || !valor) { toast('Preencha nome e valor', 'erro'); return; }
-  holerite_itens_temp.push({ nome, valor, tipo });
-  document.getElementById('hol-item-nome').value = '';
-  document.getElementById('hol-item-valor').value = '';
-  renderizarItensHolerite();
-}
+  // Busca descontos fiscais existentes (holerite_itens)
+  const { data: hExist } = await sb.from('holerites').select('id').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
+  let existingFiscal = {};
+  if (hExist) {
+    document.getElementById('holerite-id').value = hExist.id;
+    const { data: itens } = await sb.from('holerite_itens').select('nome, valor').eq('holerite_id', hExist.id);
+    (itens||[]).forEach(i => { existingFiscal[i.nome] = Number(i.valor); });
+  }
 
-function removerItemHolerite(i) {
-  holerite_itens_temp.splice(i, 1);
-  renderizarItensHolerite();
-}
+  const proventos = holCats.filter(c => c.holerite_tipo === 'provento');
+  const descontos = holCats.filter(c => c.holerite_tipo === 'desconto');
+  const fiscais = holCats.filter(c => c.holerite_tipo === 'desconto_fiscal');
 
-function renderizarItensHolerite() {
-  const el = document.getElementById('holerite-itens-lista');
-  let bruto = 0, desc = 0;
   let html = '';
-  holerite_itens_temp.forEach((item, i) => {
-    if (item.tipo === 'provento') bruto += item.valor;
-    else desc += item.valor;
-    html += `<div class="item-row">
-      <div style="flex:1;"><span style="font-size:13px;font-weight:600;">${item.nome}</span>
-      <span class="badge-${item.tipo==='provento'?'verde':'vermelho'}" style="margin-left:8px;">${item.tipo}</span></div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-weight:600;color:${item.tipo==='provento'?'#059669':'#dc2626'}">${R$(item.valor)}</span>
-        <button onclick="removerItemHolerite(${i})" style="background:none;border:none;cursor:pointer;font-size:16px;color:#94a3b8;">✕</button>
-      </div>
-    </div>`;
-  });
-  el.innerHTML = html;
+
+  if (proventos.length > 0) {
+    html += `<div style="margin-bottom:18px;">
+      <div style="font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">💼 Proventos</div>`;
+    proventos.forEach(c => {
+      const val = existingLancs[c.id] || '';
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="flex:1;font-size:14px;margin:0;">${c.icone||'💼'} ${c.nome}</label>
+        <input type="number" id="hol-val-${c.id}" value="${val}" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (descontos.length > 0) {
+    html += `<div style="margin-bottom:18px;">
+      <div style="font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">💊 Descontos</div>`;
+    descontos.forEach(c => {
+      const val = existingLancs[c.id] || '';
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="flex:1;font-size:14px;margin:0;">${c.icone||'💊'} ${c.nome}</label>
+        <input type="number" id="hol-val-${c.id}" value="${val}" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (fiscais.length > 0) {
+    html += `<div style="margin-bottom:18px;">
+      <div style="font-size:11px;font-weight:700;color:#ea580c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">📋 Descontos Fiscais</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">Não geram lançamentos — alimentam o resumo de IR</div>`;
+    fiscais.forEach(c => {
+      const val = existingFiscal[c.nome] || '';
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="flex:1;font-size:14px;margin:0;">${c.icone||'📋'} ${c.nome}</label>
+        <input type="number" id="hol-val-${c.id}" value="${val}" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('holerite-form-content').innerHTML = html;
+  window._holProventos = proventos;
+  window._holDescontos = descontos;
+  window._holFiscais = fiscais;
+
+  recalcularHolerite();
+  abrirModal('modal-holerite');
+}
+
+function recalcularHolerite() {
+  let bruto = 0, desc = 0, fiscal = 0;
+  (window._holProventos||[]).forEach(c => { bruto += parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0; });
+  (window._holDescontos||[]).forEach(c => { desc += parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0; });
+  (window._holFiscais||[]).forEach(c => { fiscal += parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0; });
   document.getElementById('hol-bruto').textContent = R$(bruto);
   document.getElementById('hol-descontos').textContent = R$(desc);
-  document.getElementById('hol-liquido').textContent = R$(bruto - desc);
+  document.getElementById('hol-fiscal').textContent = R$(fiscal);
+  document.getElementById('hol-liquido').textContent = R$(bruto - desc - fiscal);
 }
 
 async function salvarHolerite() {
-  if (holerite_itens_temp.length === 0) { toast('Adicione pelo menos um item', 'erro'); return; }
+  const proventos = window._holProventos || [];
+  const descontos = window._holDescontos || [];
+  const fiscais = window._holFiscais || [];
+  if (proventos.length === 0 && descontos.length === 0 && fiscais.length === 0) {
+    toast('Configure categorias de holerite primeiro', 'erro'); return;
+  }
   const uid = (await sb.auth.getUser()).data.user.id;
-  const bruto = holerite_itens_temp.filter(i=>i.tipo==='provento').reduce((s,i)=>s+i.valor,0);
-  const desc = holerite_itens_temp.filter(i=>i.tipo==='desconto').reduce((s,i)=>s+i.valor,0);
-  const liquido = bruto - desc;
-  const idExistente = document.getElementById('holerite-id').value;
-
-  let holeriteId;
-  if (idExistente) {
-    await sb.from('holerite_itens').delete().eq('holerite_id', idExistente);
-    holeriteId = idExistente;
-  } else {
-    const { data: h } = await sb.from('holerites').insert({ user_id: uid, mes: mesAtual, ano: anoAtual }).select().single();
-    holeriteId = h.id;
-  }
-
-  const itens = holerite_itens_temp.map((i, idx) => ({ holerite_id: holeriteId, nome: i.nome, tipo: i.tipo, valor: i.valor, ordem: idx }));
-  await sb.from('holerite_itens').insert(itens);
-
-  // Lançar como receita
   const dataLanc = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
-  const catReceita = categorias.find(c => c.tipo === 'receita' && c.nome.toLowerCase().includes('salár')) || categorias.find(c => c.tipo === 'receita');
-  if (idExistente) {
-    await sb.from('lancamentos').delete().eq('user_id', uid).eq('data', dataLanc).eq('descricao', `Salário líquido - ${meses[mesAtual-1]} ${anoAtual}`);
-  }
-  await sb.from('lancamentos').insert({ user_id: uid, data: dataLanc, descricao: `Salário líquido - ${meses[mesAtual-1]} ${anoAtual}`, valor: liquido, tipo: 'receita', categoria_id: catReceita?.id || null });
+  const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-  toast('Holerite salvo e receita lançada!', 'ok');
+  // Apaga lançamentos existentes de categorias de holerite neste mês
+  const holCatIds = [...proventos, ...descontos].map(c => c.id);
+  if (holCatIds.length > 0) {
+    await sb.from('lancamentos').delete().in('categoria_id', holCatIds).gte('data', dataLanc).lte('data', dataFim).eq('user_id', uid);
+  }
+
+  // Cria novos lançamentos
+  const novosLancs = [];
+  proventos.forEach(c => {
+    const val = parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0;
+    if (val > 0) novosLancs.push({ user_id: uid, data: dataLanc, descricao: c.nome, valor: val, tipo: 'receita', categoria_id: c.id });
+  });
+  descontos.forEach(c => {
+    const val = parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0;
+    if (val > 0) novosLancs.push({ user_id: uid, data: dataLanc, descricao: c.nome, valor: val, tipo: 'despesa', categoria_id: c.id });
+  });
+  if (novosLancs.length > 0) await sb.from('lancamentos').insert(novosLancs);
+
+  // Salva descontos fiscais em holerite_itens
+  const idExistente = document.getElementById('holerite-id').value;
+  let holeriteId = idExistente;
+  if (fiscais.length > 0) {
+    if (idExistente) {
+      await sb.from('holerite_itens').delete().eq('holerite_id', idExistente);
+    } else {
+      const { data: hNovo } = await sb.from('holerites').insert({ user_id: uid, mes: mesAtual, ano: anoAtual }).select().single();
+      holeriteId = hNovo.id;
+    }
+    const fiscalItems = fiscais.map((c, idx) => ({
+      holerite_id: holeriteId, nome: c.nome, tipo: 'desconto_fiscal',
+      valor: parseFloat(document.getElementById(`hol-val-${c.id}`)?.value||0)||0, ordem: idx
+    })).filter(i => i.valor > 0);
+    if (fiscalItems.length > 0) await sb.from('holerite_itens').insert(fiscalItems);
+  } else if (idExistente) {
+    await sb.from('holerite_itens').delete().eq('holerite_id', idExistente);
+  }
+
+  toast('Holerite salvo!', 'ok');
   fecharModal('modal-holerite');
   renderizarHolerite();
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
 }
 
 // ============================================================
@@ -2783,6 +2919,7 @@ function abrirModalCategoria(tipoDefault = 'despesa') {
   document.getElementById('cat-nome').value = '';
   document.getElementById('cat-icone').value = '📁';
   document.getElementById('cat-icone-preview').textContent = '📁';
+  document.getElementById('cat-holerite-tipo').value = '';
   document.getElementById('cat-btn-excluir').classList.add('hidden');
   document.getElementById('cat-tipo-group').classList.remove('hidden');
   document.getElementById('cat-parent-group').classList.add('hidden');
@@ -2796,6 +2933,7 @@ function abrirNovaSubcategoria(parentId, tipo) {
   document.getElementById('cat-nome').value = '';
   document.getElementById('cat-icone').value = '📁';
   document.getElementById('cat-icone-preview').textContent = '📁';
+  document.getElementById('cat-holerite-tipo').value = '';
   document.getElementById('cat-btn-excluir').classList.add('hidden');
   document.getElementById('cat-tipo-group').classList.add('hidden');
   document.getElementById('cat-tipo').value = tipo;
@@ -2851,6 +2989,7 @@ async function editarCategoria(id) {
     document.getElementById('cat-parent-group').classList.add('hidden');
     setCatTipo(c.tipo);
   }
+  document.getElementById('cat-holerite-tipo').value = c.holerite_tipo || '';
   renderEmojiGrid(c.tipo, icone);
   abrirModal('modal-categoria');
 }
@@ -2866,13 +3005,14 @@ async function salvarCategoria() {
   if (!document.getElementById('cat-parent-group').classList.contains('hidden') && !parentId) {
     toast('Selecione a categoria', 'erro'); return;
   }
+  const holeiteTipo = document.getElementById('cat-holerite-tipo').value || null;
   const uid = (await sb.auth.getUser()).data.user.id;
   const id = document.getElementById('cat-id').value;
   if (id) {
-    await sb.from('categorias').update({ nome, tipo, icone, parent_id: parentId }).eq('id', id);
+    await sb.from('categorias').update({ nome, tipo, icone, parent_id: parentId, holerite_tipo: holeiteTipo }).eq('id', id);
     toast('Salvo!', 'ok');
   } else {
-    const { data: nova } = await sb.from('categorias').insert({ user_id: uid, nome, tipo, icone, parent_id: parentId }).select().single();
+    const { data: nova } = await sb.from('categorias').insert({ user_id: uid, nome, tipo, icone, parent_id: parentId, holerite_tipo: holeiteTipo }).select().single();
     toast('Criado!', 'ok');
     await carregarCategorias();
     // Se foi chamado pelo atalho do modal de lançamento, seleciona a categoria nova automaticamente
