@@ -1248,11 +1248,12 @@ async function renderizarDashboard() {
 
   const { data: orcDados } = await comTimeout(
     sb.from('orcamento')
-      .select('*, categorias(nome,icone)').eq('mes', mesAtual).eq('ano', anoAtual)
+      .select('*, categorias(nome,icone,tipo)').eq('mes', mesAtual).eq('ano', anoAtual)
   );
 
   const categoriasAlerta = [];
   (orcDados || []).forEach(o => {
+    if (o.categorias?.tipo !== 'despesa') return; // alertas só para despesas
     const gasto = (lancDados || [])
       .filter(l => l.categoria_id === o.categoria_id)
       .reduce((s, l) => s + Number(l.valor), 0);
@@ -1260,6 +1261,14 @@ async function renderizarDashboard() {
     if (pct >= 80) categoriasAlerta.push({ nome: o.categorias?.nome, pct });
   });
   // Só conta como "estourado" se ultrapassou (> 100%), 100% exato é dentro do orçamento
+
+  // Totais de orçamento para o card de resumo
+  const dashMetaRec  = (orcDados||[]).filter(o=>o.categorias?.tipo==='receita').reduce((s,o)=>s+Number(o.valor_planejado),0);
+  const dashPlanDesp = (orcDados||[]).filter(o=>o.categorias?.tipo==='despesa').reduce((s,o)=>s+Number(o.valor_planejado),0);
+  const dashSaldoOrc  = dashMetaRec - dashPlanDesp;
+  const dashSaldoReal = receitas - despesas;
+  const dashBadgeRec  = receitas  >= dashMetaRec  && dashMetaRec  > 0 ? ' ✅' : '';
+  const dashBadgeDesp = despesas  >  dashPlanDesp && dashPlanDesp > 0 ? ' 🔴' : despesas >= dashPlanDesp * 0.8 && dashPlanDesp > 0 ? ' ⚠️' : '';
 
   const { data: faturas } = await comTimeout(
     sb.from('lancamentos')
@@ -1323,16 +1332,41 @@ async function renderizarDashboard() {
       <div style="font-size:12px;color:#64748b;">Fatura total este mês (${cartoes.filter(c=>c.ativo).length} cartões ativos)</div>
     </div>
 
-    <!-- Orçamento -->
-    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <div style="font-size:13px;color:#64748b;font-weight:500;">📊 Orçamento</div>
+    <!-- Orçamento — resumo orçado vs realizado -->
+    <div class="card" style="padding:16px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:13px;color:#64748b;font-weight:600;">💡 Orçamento — ${meses[mesAtual-1]} ${anoAtual}</div>
         <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
       </div>
-      ${categoriasAlerta.length > 0 ? `
-        <div style="font-size:13px;color:#374151;margin-bottom:8px;">${categoriasAlerta.filter(c=>c.pct>100).length} categoria(s) estourada(s) 🔴</div>
-        <div style="font-size:13px;color:#374151;">${categoriasAlerta.filter(c=>c.pct>=80&&c.pct<=100).length} categoria(s) acima de 80% ⚠️</div>
-      ` : `<div style="font-size:13px;color:#059669;">✅ Tudo dentro do orçamento!</div>`}
+
+      ${dashMetaRec === 0 && dashPlanDesp === 0 ? `
+        <div style="font-size:13px;color:#94a3b8;">Nenhum orçamento definido.</div>
+      ` : `
+        <!-- cabeçalhos -->
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;margin-bottom:4px;">
+          <div></div>
+          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">📈 Receitas</div>
+          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">📉 Despesas</div>
+          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">💰 Saldo</div>
+        </div>
+        <!-- linha orçado -->
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;padding:6px 0;border-bottom:1px solid #f1f5f9;">
+          <div style="font-size:10px;color:#94a3b8;font-weight:500;display:flex;align-items:center;">Orçado</div>
+          <div style="text-align:center;font-weight:600;font-size:13px;color:#059669;">${R$(dashMetaRec)}</div>
+          <div style="text-align:center;font-weight:600;font-size:13px;color:#dc2626;">${R$(dashPlanDesp)}</div>
+          <div style="text-align:center;font-weight:600;font-size:13px;color:${dashSaldoOrc>=0?'#059669':'#dc2626'};">${R$(dashSaldoOrc)}</div>
+        </div>
+        <!-- linha realizado -->
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;padding:6px 0;">
+          <div style="font-size:10px;color:#94a3b8;font-weight:500;display:flex;align-items:center;">Realizado</div>
+          <div style="text-align:center;font-weight:700;font-size:14px;color:#059669;">${R$(receitas)}${dashBadgeRec}</div>
+          <div style="text-align:center;font-weight:700;font-size:14px;color:#dc2626;">${R$(despesas)}${dashBadgeDesp}</div>
+          <div style="text-align:center;font-weight:700;font-size:14px;color:${dashSaldoReal>=0?'#059669':'#dc2626'};">${R$(dashSaldoReal)}</div>
+        </div>
+        ${categoriasAlerta.filter(c=>c.pct>100).length > 0 ? `
+          <div style="margin-top:8px;font-size:12px;color:#dc2626;">${categoriasAlerta.filter(c=>c.pct>100).length} categoria(s) de despesa estourada(s) 🔴</div>
+        ` : ''}
+      `}
     </div>
 
     <!-- Acesso Rápido -->
