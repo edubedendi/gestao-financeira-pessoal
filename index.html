@@ -2000,7 +2000,7 @@ function popularSelectCategoriasOrcamento() {
   document.getElementById('orc-subcategoria').innerHTML = '<option value="">Nenhuma (orçar a categoria toda)</option>';
 }
 
-// Monta grupos hierárquicos a partir de uma lista de orçamentos filtrada por tipo
+// Monta grupos hierárquicos a partir de uma lista de orçamentos filtrada por tipo, em ordem alfabética
 function montarGruposOrcamento(orcLista) {
   const orcPorCatId = {};
   orcLista.forEach(o => { orcPorCatId[o.categoria_id] = o; });
@@ -2019,16 +2019,25 @@ function montarGruposOrcamento(orcLista) {
   catsPai.forEach(o => {
     paisVistos.add(o.categoria_id);
     const subs = orcsSubcat.filter(s => s.categorias.parent_id === o.categoria_id);
+    // ordenar subcategorias alfabeticamente
+    subs.sort((a, b) => (a.categorias?.nome || '').localeCompare(b.categorias?.nome || '', 'pt-BR'));
     grupos.push({ pai: o, subs });
   });
   Object.values(paisImplicitos).forEach(catPai => {
     if (paisVistos.has(catPai.id)) return;
     paisVistos.add(catPai.id);
     const subs = orcsSubcat.filter(s => s.categorias.parent_id === catPai.id);
+    subs.sort((a, b) => (a.categorias?.nome || '').localeCompare(b.categorias?.nome || '', 'pt-BR'));
     grupos.push({ pai: null, catPaiInfo: catPai, subs });
   });
   orcsSubcat.forEach(o => {
     if (!paisVistos.has(o.categorias.parent_id)) grupos.push({ pai: o, subs: [] });
+  });
+  // ordenar grupos (categorias-pai) alfabeticamente
+  grupos.sort((a, b) => {
+    const nA = (a.pai ? a.pai.categorias?.nome : a.catPaiInfo?.nome) || '';
+    const nB = (b.pai ? b.pai.categorias?.nome : b.catPaiInfo?.nome) || '';
+    return nA.localeCompare(nB, 'pt-BR');
   });
   return grupos;
 }
@@ -2229,7 +2238,31 @@ async function renderizarOrcamento() {
     </div>` + htmlDesp;
   }
 
-  el.innerHTML = html || `<div style="text-align:center;padding:40px;color:#94a3b8;">Nenhum orçamento definido.</div>`;
+  // ── CARD RESUMO GERAL ─────────────────────────────────────
+  // Calcula totais planejados de receita e despesa para mostrar no topo
+  const totalMetaRecGeral = (orcReceita || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
+  const totalPlanDespGeral = (orcDespesa || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
+  const saldoOrcado = totalMetaRecGeral - totalPlanDespGeral;
+
+  const resumoCard = `<div class="card" style="padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;color:#64748b;font-weight:600;margin-bottom:12px;">💡 Resumo Orçado — ${meses[mesAtual-1]} ${anoAtual}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:12px;">
+      <div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:2px;">📈 Receitas</div>
+        <div style="font-weight:700;color:#059669;font-size:15px;">${R$(totalMetaRecGeral)}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:2px;">📉 Despesas</div>
+        <div style="font-weight:700;color:#dc2626;font-size:15px;">${R$(totalPlanDespGeral)}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:2px;">💰 Saldo</div>
+        <div style="font-weight:700;color:${saldoOrcado >= 0 ? '#059669' : '#dc2626'};font-size:15px;">${R$(saldoOrcado)}</div>
+      </div>
+    </div>
+  </div>`;
+
+  el.innerHTML = (totalMetaRecGeral > 0 || totalPlanDespGeral > 0 ? resumoCard : '') + html || `<div style="text-align:center;padding:40px;color:#94a3b8;">Nenhum orçamento definido.</div>`;
 }
 
 function atualizarSubcategoriasOrcamento() {
@@ -2604,6 +2637,32 @@ async function encontrarOuCriarCatHol(catNome, tipo, icone) {
   return data?.id;
 }
 
+// Retorna lançamentos de holerite do período: novos (__hol__) + antigos (categorias com nomes do holerite)
+async function buscarLancamentosHolerite(dataInicio, dataFim) {
+  const holCatNomes = HOL_FIELDS.map(f => f.catNome);
+  const holCatIds = categorias.filter(c => holCatNomes.includes(c.nome)).map(c => c.id);
+
+  const queries = [
+    sb.from('lancamentos').select('*, categorias(nome,icone)')
+      .eq('observacao', '__hol__').gte('data', dataInicio).lte('data', dataFim),
+  ];
+  if (holCatIds.length > 0) {
+    queries.push(
+      sb.from('lancamentos').select('*, categorias(nome,icone)')
+        .in('categoria_id', holCatIds)
+        .is('observacao', null)   // antigos não têm observacao
+        .gte('data', dataInicio).lte('data', dataFim)
+    );
+  }
+  const results = await Promise.all(queries);
+  const novos = results[0].data || [];
+  const antigos = results[1]?.data || [];
+  // deduplicar por id
+  const vistos = new Set(novos.map(l => l.id));
+  const todos = [...novos, ...antigos.filter(l => !vistos.has(l.id))];
+  return todos;
+}
+
 async function renderizarHolerite() {
   const el = document.getElementById('holerite-content');
   el.innerHTML = '<div class="spinner"></div>';
@@ -2611,14 +2670,7 @@ async function renderizarHolerite() {
   const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-  // Busca lançamentos marcados como holerite neste mês
-  const { data: lancs } = await sb.from('lancamentos')
-    .select('*, categorias(nome,icone)')
-    .eq('observacao', '__hol__')
-    .gte('data', dataInicio)
-    .lte('data', dataFim);
-
-  const holLancs = lancs || [];
+  const holLancs = await buscarLancamentosHolerite(dataInicio, dataFim);
 
   if (holLancs.length === 0) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
@@ -2679,13 +2731,9 @@ async function renderizarHolerite() {
   </div></div>`;
 
   // ── Resumo IR acumulado no ano ─────────────────────────────────
-  const { data: anualLancs } = await sb.from('lancamentos')
-    .select('valor,descricao,tipo')
-    .eq('observacao', '__hol__')
-    .gte('data', `${anoAtual}-01-01`)
-    .lte('data', dataFim);
+  const anualLancs = await buscarLancamentosHolerite(`${anoAtual}-01-01`, dataFim);
 
-  const provAcum = (anualLancs||[]).filter(l=>l.tipo==='receita').reduce((s,l)=>s+Number(l.valor),0);
+  const provAcum = anualLancs.filter(l=>l.tipo==='receita').reduce((s,l)=>s+Number(l.valor),0);
   const inssAnual = (anualLancs||[]).filter(l=>l.descricao==='INSS').reduce((s,l)=>s+Number(l.valor),0);
   const irrfAnual = (anualLancs||[]).filter(l=>l.descricao==='IRRF').reduce((s,l)=>s+Number(l.valor),0);
   const baseCalculo = Math.max(0, provAcum - inssAnual);
@@ -2709,20 +2757,22 @@ async function abrirModalHolerite() {
   const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
-  // Carrega valores existentes do mês
-  const { data: lancs } = await sb.from('lancamentos')
-    .select('descricao,valor')
-    .eq('observacao', '__hol__')
-    .gte('data', dataInicio)
-    .lte('data', dataFim);
+  // Carrega valores existentes do mês (novos com __hol__ + antigos por categoria)
+  const lancs = await buscarLancamentosHolerite(dataInicio, dataFim);
 
+  // Mapeia por label (novo sistema) e também por nome de categoria (sistema antigo)
   const valPorLabel = {};
-  (lancs||[]).forEach(l => { valPorLabel[l.descricao] = Number(l.valor); });
+  lancs.forEach(l => {
+    // novo sistema: descricao = label do HOL_FIELDS
+    if (l.descricao) valPorLabel[l.descricao] = Number(l.valor);
+    // sistema antigo: categoria.nome = catNome do HOL_FIELDS
+    if (l.categorias?.nome) valPorLabel[l.categorias.nome] = Number(l.valor);
+  });
 
-  // Preenche os campos
+  // Preenche os campos — tenta pelo label primeiro, depois pelo catNome
   HOL_FIELDS.forEach(f => {
     const el = document.getElementById(`hol-${f.id}`);
-    if (el) el.value = valPorLabel[f.label] || '';
+    if (el) el.value = valPorLabel[f.label] || valPorLabel[f.catNome] || '';
   });
 
   recalcularHolerite();
