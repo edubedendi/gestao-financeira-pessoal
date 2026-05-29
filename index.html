@@ -1282,30 +1282,91 @@ async function renderizarDashboard() {
 
   const alertaPoupa = receitas > 0 && (receitas - despesas) < metaPoupa;
 
+  // Gráfico SVG de barras — Receitas vs Despesas
+  const maxBarVal = Math.max(receitas, despesas, 1);
+  const BAR_H = 90;
+  const recBarH = Math.round((receitas / maxBarVal) * BAR_H);
+  const despBarH = Math.round((despesas / maxBarVal) * BAR_H);
+  const recY = BAR_H - recBarH;
+  const despY = BAR_H - despBarH;
+  const pctGasto = receitas > 0 ? Math.min(Math.round((despesas / receitas) * 100), 100) : 0;
+  const corSaldo = saldo >= 0 ? '#059669' : '#dc2626';
+
+  const svgGrafico = `
+    <svg viewBox="0 0 260 ${BAR_H + 36}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-height:130px;">
+      <!-- Linhas de grade -->
+      <line x1="0" y1="${BAR_H * 0.25}" x2="260" y2="${BAR_H * 0.25}" stroke="#f1f5f9" stroke-width="1"/>
+      <line x1="0" y1="${BAR_H * 0.5}"  x2="260" y2="${BAR_H * 0.5}"  stroke="#f1f5f9" stroke-width="1"/>
+      <line x1="0" y1="${BAR_H * 0.75}" x2="260" y2="${BAR_H * 0.75}" stroke="#f1f5f9" stroke-width="1"/>
+      <!-- Barra Receitas -->
+      <rect x="40" y="${recY}" width="72" height="${recBarH || 2}" fill="#059669" rx="5"/>
+      <text x="76" y="${recY - 6}" text-anchor="middle" font-size="9" fill="#059669" font-weight="700">${R$(receitas)}</text>
+      <!-- Barra Despesas -->
+      <rect x="148" y="${despY}" width="72" height="${despBarH || 2}" fill="#dc2626" rx="5"/>
+      <text x="184" y="${despY - 6}" text-anchor="middle" font-size="9" fill="#dc2626" font-weight="700">${R$(despesas)}</text>
+      <!-- Rótulos -->
+      <text x="76"  y="${BAR_H + 14}" text-anchor="middle" font-size="10" fill="#64748b">↑ Receitas</text>
+      <text x="184" y="${BAR_H + 14}" text-anchor="middle" font-size="10" fill="#64748b">↓ Despesas</text>
+      <!-- Linha base -->
+      <line x1="0" y1="${BAR_H}" x2="260" y2="${BAR_H}" stroke="#e2e8f0" stroke-width="1"/>
+      <!-- Saldo -->
+      <text x="130" y="${BAR_H + 30}" text-anchor="middle" font-size="12" fill="${corSaldo}" font-weight="700">Saldo: ${R$(saldo)}</text>
+    </svg>`;
+
   el.innerHTML = `
-    <!-- Saldo -->
-    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('lancamentos')">
+    <!-- 1. Orçamento — primeiro card -->
+    <div class="card" style="padding:16px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-        <div style="font-size:13px;color:#64748b;font-weight:500;">💰 Saldo do Mês</div>
+        <div style="font-size:13px;color:#64748b;font-weight:600;">💡 Orçamento — ${meses[mesAtual-1]} ${anoAtual}</div>
         <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
-        <div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Receitas</div>
-          <div style="font-weight:700;color:#059669;font-size:16px;">${R$(receitas)}</div>
+
+      ${dashMetaRec === 0 && dashPlanDesp === 0 ? `
+        <div style="font-size:13px;color:#94a3b8;">Nenhum orçamento definido.</div>
+      ` : `
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;margin-bottom:4px;">
+          <div></div>
+          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">📈 Receitas</div>
+          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">📉 Despesas</div>
+          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">💰 Saldo</div>
         </div>
-        <div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Gastos</div>
-          <div style="font-weight:700;color:#dc2626;font-size:16px;">${R$(despesas)}</div>
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;padding:6px 0;border-bottom:1px solid #f1f5f9;">
+          <div style="font-size:10px;color:#94a3b8;font-weight:500;display:flex;align-items:center;">Orçado</div>
+          <div style="text-align:center;font-weight:600;font-size:13px;color:#059669;">${R$(dashMetaRec)}</div>
+          <div style="text-align:center;font-weight:600;font-size:13px;color:#dc2626;">${R$(dashPlanDesp)}</div>
+          <div style="text-align:center;font-weight:600;font-size:13px;color:${dashSaldoOrc>=0?'#059669':'#dc2626'};">${R$(dashSaldoOrc)}</div>
         </div>
-        <div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Saldo</div>
-          <div style="font-weight:700;font-size:16px;color:${saldo >= 0 ? '#059669' : '#dc2626'}">${R$(saldo)}</div>
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;padding:6px 0;">
+          <div style="font-size:10px;color:#94a3b8;font-weight:500;display:flex;align-items:center;">Realizado</div>
+          <div style="text-align:center;font-weight:700;font-size:14px;color:#059669;">${R$(receitas)}${dashBadgeRec}</div>
+          <div style="text-align:center;font-weight:700;font-size:14px;color:#dc2626;">${R$(despesas)}${dashBadgeDesp}</div>
+          <div style="text-align:center;font-weight:700;font-size:14px;color:${dashSaldoReal>=0?'#059669':'#dc2626'};">${R$(dashSaldoReal)}</div>
+        </div>
+        ${categoriasAlerta.filter(c=>c.pct>100).length > 0 ? `
+          <div style="margin-top:8px;font-size:12px;color:#dc2626;">${categoriasAlerta.filter(c=>c.pct>100).length} categoria(s) de despesa estourada(s) 🔴</div>
+        ` : ''}
+      `}
+    </div>
+
+    <!-- 2. Gráfico Receitas × Despesas -->
+    <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('lancamentos')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-size:13px;color:#64748b;font-weight:500;">📊 Receitas × Despesas</div>
+        <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
+      </div>
+      ${svgGrafico}
+      <div style="margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-size:11px;color:#64748b;">% do rendimento gasto</span>
+          <span style="font-size:11px;font-weight:700;color:${pctGasto > 100 ? '#dc2626' : pctGasto >= 80 ? '#f59e0b' : '#059669'};">${pctGasto}%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${pctGasto}%;background:${pctGasto > 100 ? '#dc2626' : pctGasto >= 80 ? '#f59e0b' : '#059669'};"></div>
         </div>
       </div>
     </div>
 
-    <!-- Poupança -->
+    <!-- 3. Poupança -->
     <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('poupanca')">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div style="font-size:13px;color:#64748b;font-weight:500;">🎯 Meta de Poupança</div>
@@ -1322,7 +1383,7 @@ async function renderizarDashboard() {
       ` : `<div style="font-size:13px;color:#94a3b8;">Toque em ${percPoupa}% para definir sua meta.</div>`}
     </div>
 
-    <!-- Cartões -->
+    <!-- 4. Cartões -->
     <div class="card" style="padding:20px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('cartoes')">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div style="font-size:13px;color:#64748b;font-weight:500;">💳 Cartões</div>
@@ -1330,43 +1391,6 @@ async function renderizarDashboard() {
       </div>
       <div style="font-weight:700;font-size:20px;margin-bottom:4px;">${R$(totalCartoes)}</div>
       <div style="font-size:12px;color:#64748b;">Fatura total este mês (${cartoes.filter(c=>c.ativo).length} cartões ativos)</div>
-    </div>
-
-    <!-- Orçamento — resumo orçado vs realizado -->
-    <div class="card" style="padding:16px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-        <div style="font-size:13px;color:#64748b;font-weight:600;">💡 Orçamento — ${meses[mesAtual-1]} ${anoAtual}</div>
-        <div style="font-size:12px;color:#94a3b8;">ver detalhes ▶</div>
-      </div>
-
-      ${dashMetaRec === 0 && dashPlanDesp === 0 ? `
-        <div style="font-size:13px;color:#94a3b8;">Nenhum orçamento definido.</div>
-      ` : `
-        <!-- cabeçalhos -->
-        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;margin-bottom:4px;">
-          <div></div>
-          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">📈 Receitas</div>
-          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">📉 Despesas</div>
-          <div style="text-align:center;font-size:10px;font-weight:700;color:#94a3b8;">💰 Saldo</div>
-        </div>
-        <!-- linha orçado -->
-        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;padding:6px 0;border-bottom:1px solid #f1f5f9;">
-          <div style="font-size:10px;color:#94a3b8;font-weight:500;display:flex;align-items:center;">Orçado</div>
-          <div style="text-align:center;font-weight:600;font-size:13px;color:#059669;">${R$(dashMetaRec)}</div>
-          <div style="text-align:center;font-weight:600;font-size:13px;color:#dc2626;">${R$(dashPlanDesp)}</div>
-          <div style="text-align:center;font-weight:600;font-size:13px;color:${dashSaldoOrc>=0?'#059669':'#dc2626'};">${R$(dashSaldoOrc)}</div>
-        </div>
-        <!-- linha realizado -->
-        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;padding:6px 0;">
-          <div style="font-size:10px;color:#94a3b8;font-weight:500;display:flex;align-items:center;">Realizado</div>
-          <div style="text-align:center;font-weight:700;font-size:14px;color:#059669;">${R$(receitas)}${dashBadgeRec}</div>
-          <div style="text-align:center;font-weight:700;font-size:14px;color:#dc2626;">${R$(despesas)}${dashBadgeDesp}</div>
-          <div style="text-align:center;font-weight:700;font-size:14px;color:${dashSaldoReal>=0?'#059669':'#dc2626'};">${R$(dashSaldoReal)}</div>
-        </div>
-        ${categoriasAlerta.filter(c=>c.pct>100).length > 0 ? `
-          <div style="margin-top:8px;font-size:12px;color:#dc2626;">${categoriasAlerta.filter(c=>c.pct>100).length} categoria(s) de despesa estourada(s) 🔴</div>
-        ` : ''}
-      `}
     </div>
 
     <!-- Acesso Rápido -->
