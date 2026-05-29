@@ -2723,17 +2723,18 @@ async function renderizarHolerite() {
 
   const holLancs = await buscarLancamentosHolerite(dataInicio, dataFim);
 
-  // Busca outros descontos lançados no dia 1 (que não fazem parte dos campos padrão do holerite)
+  // Busca outros lançamentos do dia 1 (receitas e despesas) fora dos campos padrão do holerite
   const { data: rawExtras } = await sb.from('lancamentos')
     .select('*, categorias(nome,icone)')
     .eq('user_id', uid)
     .eq('data', dataInicio)
-    .eq('tipo', 'despesa')
     .is('observacao', null);
   const holLancIdsSet = new Set(holLancs.map(l => l.id));
-  const extras = (rawExtras || []).filter(l => !holLancIdsSet.has(l.id));
+  const extrasAll = (rawExtras || []).filter(l => !holLancIdsSet.has(l.id));
+  const extrasReceitas = extrasAll.filter(l => l.tipo === 'receita');
+  const extras = extrasAll.filter(l => l.tipo === 'despesa');
 
-  if (holLancs.length === 0 && extras.length === 0) {
+  if (holLancs.length === 0 && extrasAll.length === 0) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
       <div style="font-size:40px;margin-bottom:12px;">📄</div>
       <div style="font-size:15px;color:#374151;font-weight:600;margin-bottom:4px;">${meses[mesAtual-1]} ${anoAtual}</div>
@@ -2747,7 +2748,8 @@ async function renderizarHolerite() {
   const fiscalLancs = holLancs.filter(l => l.tipo === 'despesa' && ['INSS','IRRF'].includes(l.descricao));
   const descLancs = holLancs.filter(l => l.tipo === 'despesa' && !['INSS','IRRF'].includes(l.descricao));
 
-  const totalProventos = provLancs.reduce((s, l) => s + Number(l.valor), 0);
+  const totalProventos = provLancs.reduce((s, l) => s + Number(l.valor), 0)
+                       + extrasReceitas.reduce((s, l) => s + Number(l.valor), 0);
   const totalFiscal = fiscalLancs.reduce((s, l) => s + Number(l.valor), 0);
   const totalDesc = descLancs.reduce((s, l) => s + Number(l.valor), 0);
   const totalExtras = extras.reduce((s, l) => s + Number(l.valor), 0);
@@ -2760,11 +2762,16 @@ async function renderizarHolerite() {
       <button onclick="abrirModalHolerite()" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">✏️ Editar</button>
     </div>`;
 
-  if (provLancs.length > 0) {
+  if (provLancs.length > 0 || extrasReceitas.length > 0) {
     html += `<div style="margin-bottom:12px;">
       <div style="font-size:11px;color:#059669;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">💼 Proventos</div>`;
     provLancs.forEach(l => {
       html += `<div class="item-row"><span style="font-size:14px;">${l.categorias?.icone||''} ${l.descricao}</span><span class="valor-positivo">${R$(l.valor)}</span></div>`;
+    });
+    extrasReceitas.forEach(l => {
+      const icone = l.categorias?.icone || '💰';
+      const nome = l.descricao || l.categorias?.nome || 'Provento';
+      html += `<div class="item-row"><span style="font-size:14px;">${icone} ${nome}</span><span class="valor-positivo">${R$(l.valor)}</span></div>`;
     });
     html += `</div>`;
   }
@@ -2806,7 +2813,20 @@ async function renderizarHolerite() {
   // ── Resumo IR acumulado no ano ─────────────────────────────────
   const anualLancs = await buscarLancamentosHolerite(`${anoAtual}-01-01`, dataFim);
 
-  const provAcum = anualLancs.filter(l=>l.tipo==='receita').reduce((s,l)=>s+Number(l.valor),0);
+  // Também busca receitas do dia 1 de cada mês (jan ao mês atual) fora do padrão HOL_FIELDS
+  const { data: rawAnualExtras } = await sb.from('lancamentos')
+    .select('valor')
+    .eq('user_id', uid)
+    .eq('tipo', 'receita')
+    .is('observacao', null)
+    .gte('data', `${anoAtual}-01-01`)
+    .lte('data', dataFim)
+    .filter('data', 'like', `%-01`);  // apenas dias 1 de cada mês
+  const anualExtrasReceitas = (rawAnualExtras || []);
+
+  const anualLancIds = new Set(anualLancs.map(l => l.id));
+  const provAcum = anualLancs.filter(l=>l.tipo==='receita').reduce((s,l)=>s+Number(l.valor),0)
+                 + anualExtrasReceitas.reduce((s,l)=>s+Number(l.valor),0);
   const inssAnual = (anualLancs||[]).filter(l=>l.descricao==='INSS').reduce((s,l)=>s+Number(l.valor),0);
   const irrfAnual = (anualLancs||[]).filter(l=>l.descricao==='IRRF').reduce((s,l)=>s+Number(l.valor),0);
   const baseCalculo = Math.max(0, provAcum - inssAnual);
