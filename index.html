@@ -2811,18 +2811,21 @@ async function abrirModalHolerite() {
   const lancs = await buscarLancamentosHolerite(dataInicio, dataFim);
 
   // Mapeia por label (novo sistema) e também por nome de categoria (sistema antigo)
+  // Usa Map com chave normalizada para evitar erros de espaço/acentuação
   const valPorLabel = {};
   lancs.forEach(l => {
     // novo sistema: descricao = label do HOL_FIELDS
-    if (l.descricao) valPorLabel[l.descricao] = Number(l.valor);
+    if (l.descricao) valPorLabel[l.descricao.trim()] = Number(l.valor);
     // sistema antigo: categoria.nome = catNome do HOL_FIELDS
-    if (l.categorias?.nome) valPorLabel[l.categorias.nome] = Number(l.valor);
+    if (l.categorias?.nome) valPorLabel[l.categorias.nome.trim()] = Number(l.valor);
   });
 
-  // Preenche os campos — tenta pelo label primeiro, depois pelo catNome
+  // Preenche os campos — usa ?? (nullish coalescing) para preservar valor 0
   HOL_FIELDS.forEach(f => {
     const el = document.getElementById(`hol-${f.id}`);
-    if (el) el.value = valPorLabel[f.label] || valPorLabel[f.catNome] || '';
+    if (!el) return;
+    const val = valPorLabel[f.label.trim()] ?? valPorLabel[f.catNome.trim()] ?? null;
+    el.value = val !== null ? val : '';
   });
 
   recalcularHolerite();
@@ -2847,9 +2850,10 @@ async function salvarHolerite() {
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
   // Apaga lançamentos de holerite do mês
-  await sb.from('lancamentos').delete()
+  const { error: errDelete } = await sb.from('lancamentos').delete()
     .eq('user_id', uid).eq('observacao', '__hol__')
     .gte('data', dataLanc).lte('data', dataFim);
+  if (errDelete) { toast('Erro ao atualizar holerite: ' + errDelete.message, 'erro'); return; }
 
   // Cria novos lançamentos para cada campo preenchido
   const novosLancs = [];
@@ -2861,7 +2865,11 @@ async function salvarHolerite() {
   }
 
   if (novosLancs.length === 0) { toast('Preencha ao menos um campo', 'erro'); return; }
-  await sb.from('lancamentos').insert(novosLancs);
+  const { error: errInsert } = await sb.from('lancamentos').insert(novosLancs);
+  if (errInsert) {
+    toast('Erro ao salvar holerite: ' + errInsert.message, 'erro');
+    return; // não fecha o modal — dados ainda não foram salvos
+  }
 
   toast('Holerite salvo!', 'ok');
   fecharModal('modal-holerite');
