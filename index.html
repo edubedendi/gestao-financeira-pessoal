@@ -274,19 +274,29 @@
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;display:flex;gap:8px;padding-bottom:8px;margin-bottom:14px;" id="rel-meses-scroll"></div>
     <!-- Tabs -->
     <div style="display:flex;gap:6px;margin-bottom:14px;background:white;padding:4px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
-      <button class="tab-btn active" style="flex:1;" id="rel-tab-despesas" onclick="relatorioTrocarAba('despesa')">Despesas</button>
-      <button class="tab-btn" style="flex:1;" id="rel-tab-receitas" onclick="relatorioTrocarAba('receita')">Receitas</button>
+      <button class="tab-btn active" style="flex:1;" id="rel-tab-resumo"    onclick="relatorioTrocarAba('resumo')">Resumo</button>
+      <button class="tab-btn"        style="flex:1;" id="rel-tab-despesas"  onclick="relatorioTrocarAba('despesa')">Despesas</button>
+      <button class="tab-btn"        style="flex:1;" id="rel-tab-receitas"  onclick="relatorioTrocarAba('receita')">Receitas</button>
     </div>
-    <!-- Cards resumo -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;" id="rel-cards"></div>
-    <!-- Tabela -->
-    <div class="card" style="overflow:hidden;margin-bottom:14px;">
-      <div style="overflow-x:auto;">
-        <table id="rel-tabela" style="border-collapse:collapse;width:100%;"></table>
+
+    <!-- ABA RESUMO -->
+    <div id="rel-aba-resumo">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;" id="rel-resumo-cards"></div>
+      <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-resultado"></div>
+      <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-barras"></div>
+      <div class="card" style="padding:16px;" id="rel-resumo-top"></div>
+    </div>
+
+    <!-- ABA DESPESAS / RECEITAS -->
+    <div id="rel-aba-detalhe" style="display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;" id="rel-cards"></div>
+      <div class="card" style="overflow:hidden;margin-bottom:14px;">
+        <div style="overflow-x:auto;">
+          <table id="rel-tabela" style="border-collapse:collapse;width:100%;"></table>
+        </div>
       </div>
+      <div class="card" style="padding:16px;" id="rel-progresso"></div>
     </div>
-    <!-- Progresso geral -->
-    <div class="card" style="padding:16px;" id="rel-progresso"></div>
   </div>
 
   <!-- NAVEGAÇÃO INFERIOR -->
@@ -882,7 +892,7 @@ let appInicializado = false; // Guard contra múltiplas inicializações
 // Estado do relatório orçado vs realizado
 let relAno = anoAtual;
 let relMes = mesAtual;
-let relAba = 'despesa';
+let relAba = 'resumo';
 
 // ============================================================
 // UTILITÁRIOS
@@ -2472,9 +2482,14 @@ function relatorioAnoProximo()   { relAno++; renderizarRelatorio(); }
 
 function relatorioTrocarAba(aba) {
   relAba = aba;
+  document.getElementById('rel-tab-resumo')  .classList.toggle('active', aba === 'resumo');
   document.getElementById('rel-tab-despesas').classList.toggle('active', aba === 'despesa');
   document.getElementById('rel-tab-receitas').classList.toggle('active', aba === 'receita');
-  _renderizarRelatorioConteudo();
+  const isResumo = aba === 'resumo';
+  document.getElementById('rel-aba-resumo') .style.display = isResumo ? '' : 'none';
+  document.getElementById('rel-aba-detalhe').style.display = isResumo ? 'none' : '';
+  if (isResumo) _renderizarRelatorioResumo();
+  else          _renderizarRelatorioConteudo();
 }
 
 async function renderizarRelatorio() {
@@ -2512,12 +2527,166 @@ async function renderizarRelatorio() {
   window._relOrcPorCat  = orcPorCat;
   window._relRealPorCat = realPorCat;
 
-  _renderizarRelatorioConteudo();
+  if (relAba === 'resumo') _renderizarRelatorioResumo();
+  else                     _renderizarRelatorioConteudo();
 }
 
 function relatorioSelecionarMes(m) {
   relMes = m;
   renderizarRelatorio();
+}
+
+function _renderizarRelatorioResumo() {
+  const orcPorCat  = window._relOrcPorCat  || {};
+  const realPorCat = window._relRealPorCat || {};
+
+  const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const pct = (real, orc) => orc > 0 ? Math.round((real / orc) * 100) : null;
+  const barColor = p => p === null || p <= 85 ? '#10b981' : p <= 100 ? '#f59e0b' : '#ef4444';
+  const badgeCls = p => p === null ? '' : p <= 85 ? 'badge-verde' : p <= 100 ? 'badge-amarelo' : 'badge-vermelho';
+
+  // Separa categorias por tipo
+  const catsPorTipo = tipo => categorias.filter(c => c.tipo === tipo);
+
+  // Calcula total orçado/realizado para um tipo
+  function totais(tipo) {
+    const pais   = catsPorTipo(tipo).filter(c => !c.parent_id);
+    const filhos = catsPorTipo(tipo).filter(c =>  c.parent_id);
+    let orc = 0, real = 0;
+    pais.forEach(p => {
+      orc  += orcPorCat[p.id]  || 0;
+      real += realPorCat[p.id] || 0;
+      filhos.filter(f => f.parent_id === p.id).forEach(s => {
+        orc  += orcPorCat[s.id]  || 0;
+        real += realPorCat[s.id] || 0;
+      });
+    });
+    return { orc, real };
+  }
+
+  const rec  = totais('receita');
+  const desp = totais('despesa');
+  const saldoOrc  = rec.orc  - desp.orc;
+  const saldoReal = rec.real - desp.real;
+  const diffSaldo = saldoReal - saldoOrc;
+
+  const pRec  = pct(rec.real,  rec.orc);
+  const pDesp = pct(desp.real, desp.orc);
+
+  // --- 4 Cards ---
+  document.getElementById('rel-resumo-cards').innerHTML = `
+    <div class="card" style="padding:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Receita orçada</div>
+      <div style="font-size:18px;font-weight:700;color:#1e293b;">${fmt(rec.orc)}</div>
+    </div>
+    <div class="card" style="padding:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Receita realizada</div>
+      <div style="font-size:18px;font-weight:700;color:${rec.real >= rec.orc ? '#059669' : '#dc2626'};">${fmt(rec.real)}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${pRec !== null ? pRec + '% do orçado' : '—'}</div>
+    </div>
+    <div class="card" style="padding:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Despesa orçada</div>
+      <div style="font-size:18px;font-weight:700;color:#1e293b;">${fmt(desp.orc)}</div>
+    </div>
+    <div class="card" style="padding:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Despesa realizada</div>
+      <div style="font-size:18px;font-weight:700;color:${desp.real > desp.orc ? '#dc2626' : '#059669'};">${fmt(desp.real)}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${pDesp !== null ? pDesp + '% do orçado' : '—'}</div>
+    </div>
+  `;
+
+  // --- Resultado do mês ---
+  const diffCls = diffSaldo >= 0 ? 'valor-positivo' : 'valor-negativo';
+  const diffSinal = diffSaldo >= 0 ? '+' : '';
+  let diffTexto = '';
+  const recExtra  = rec.real  - rec.orc;
+  const despExtra = desp.real - desp.orc;
+  const partes = [];
+  if (despExtra !== 0) partes.push(despExtra > 0 ? `Gastou ${fmt(despExtra)} a mais` : `Gastou ${fmt(Math.abs(despExtra))} a menos`);
+  if (recExtra  !== 0) partes.push(recExtra  > 0 ? `recebeu ${fmt(recExtra)} a mais`  : `recebeu ${fmt(Math.abs(recExtra))} a menos`);
+  if (partes.length) diffTexto = partes.join(' e ') + ' que o orçado';
+
+  document.getElementById('rel-resumo-resultado').innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:12px;">Resultado do mês</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+      <span style="font-size:13px;color:#64748b;">Saldo orçado</span>
+      <span style="font-size:14px;font-weight:700;color:${saldoOrc >= 0 ? '#059669' : '#dc2626'};">${saldoOrc >= 0 ? '+' : ''}${fmt(saldoOrc)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:14px;">
+      <span style="font-size:13px;color:#64748b;">Saldo realizado</span>
+      <span style="font-size:14px;font-weight:700;color:${saldoReal >= 0 ? '#059669' : '#dc2626'};">${saldoReal >= 0 ? '+' : ''}${fmt(saldoReal)}</span>
+    </div>
+    <div style="border-top:1px solid #f1f5f9;padding-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:13px;color:#64748b;">Diferença</span>
+        <span style="font-size:15px;font-weight:700;" class="${diffCls}">${diffSinal}${fmt(diffSaldo)}</span>
+      </div>
+      ${diffTexto ? `<div style="font-size:12px;color:#94a3b8;margin-top:4px;">${diffTexto}</div>` : ''}
+    </div>
+  `;
+
+  // --- Barras de uso ---
+  const pRecVal  = Math.min(pRec  ?? 0, 100);
+  const pDespVal = Math.min(pDesp ?? 0, 100);
+  const labelRec  = rec.orc  > 0 ? (rec.real  >= rec.orc  ? `Recebeu ${fmt(rec.real  - rec.orc)}  a mais ✓` : `Faltou ${fmt(rec.orc  - rec.real)}`)  : 'Sem orçamento';
+  const labelDesp = desp.orc > 0 ? (desp.real <= desp.orc ? `Sobrou ${fmt(desp.orc  - desp.real)}` : `Estourou ${fmt(desp.real - desp.orc)}`) : 'Sem orçamento';
+  const clsRec    = rec.real  >= rec.orc  || rec.orc  === 0 ? 'valor-positivo' : 'valor-negativo';
+  const clsDesp   = desp.real <= desp.orc || desp.orc === 0 ? 'valor-positivo' : 'valor-negativo';
+
+  document.getElementById('rel-resumo-barras').innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:14px;">Uso do orçamento</div>
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:13px;color:#64748b;">📈 Receitas</span>
+        <span style="font-size:13px;font-weight:700;color:${barColor(pRec)};">${pRec ?? '—'}%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${pRecVal}%;background:${barColor(pRec)};"></div></div>
+      <div style="font-size:11px;margin-top:3px;" class="${clsRec}">${labelRec}</div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:13px;color:#64748b;">📉 Despesas</span>
+        <span style="font-size:13px;font-weight:700;color:${barColor(pDesp)};">${pDesp ?? '—'}%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${pDespVal}%;background:${barColor(pDesp)};"></div></div>
+      <div style="font-size:11px;margin-top:3px;" class="${clsDesp}">${labelDesp}</div>
+    </div>
+  `;
+
+  // --- Top categorias (todas as de despesa com orc ou realizado, ordenadas por % desc) ---
+  const pais = categorias.filter(c => c.tipo === 'despesa' && !c.parent_id);
+  const filhos = categorias.filter(c => c.tipo === 'despesa' && c.parent_id);
+
+  const grupos = pais.map(pai => {
+    let orcG  = orcPorCat[pai.id]  || 0;
+    let realG = realPorCat[pai.id] || 0;
+    filhos.filter(f => f.parent_id === pai.id).forEach(s => {
+      orcG  += orcPorCat[s.id]  || 0;
+      realG += realPorCat[s.id] || 0;
+    });
+    return { nome: pai.nome, icone: pai.icone || '📁', orc: orcG, real: realG, p: pct(realG, orcG) };
+  }).filter(g => g.orc > 0 || g.real > 0)
+    .sort((a, b) => (b.p ?? 0) - (a.p ?? 0));
+
+  if (grupos.length === 0) {
+    document.getElementById('rel-resumo-top').innerHTML = `<div style="text-align:center;padding:16px;color:#94a3b8;font-size:14px;">Sem dados de despesa neste mês.</div>`;
+    return;
+  }
+
+  let topHtml = `<div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:12px;">Despesas por categoria</div>`;
+  grupos.forEach((g, i) => {
+    const borda = i < grupos.length - 1 ? 'border-bottom:1px solid #f1f5f9;' : '';
+    topHtml += `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;${borda}">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#374151;">${g.icone} ${g.nome}</div>
+          <div style="font-size:12px;color:#94a3b8;">Orçado ${fmt(g.orc)} · Realizado ${fmt(g.real)}</div>
+        </div>
+        ${g.p !== null ? `<span class="${badgeCls(g.p)}" style="border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;">${g.p}%</span>` : ''}
+      </div>
+    `;
+  });
+  document.getElementById('rel-resumo-top').innerHTML = topHtml;
 }
 
 function _renderizarRelatorioConteudo() {
