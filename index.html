@@ -160,6 +160,7 @@
             <option value="">Todos</option>
             <option value="despesa">Despesa</option>
             <option value="receita">Receita</option>
+            <option value="transferencia">Transferência</option>
           </select>
         </div>
       </div>
@@ -635,6 +636,7 @@
       <button onclick="fecharModal('modal-aporte')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
     <input type="hidden" id="aporte-meta-id" />
+    <input type="hidden" id="aporte-id" />
     <div style="display:grid;gap:14px;">
       <div>
         <label>Valor (R$)</label>
@@ -652,6 +654,9 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
       <button class="btn-secondary" onclick="fecharModal('modal-aporte')">Cancelar</button>
       <button class="btn-primary" onclick="salvarAporte()">Salvar</button>
+    </div>
+    <div id="aporte-btn-excluir" class="hidden" style="margin-top:12px;">
+      <button class="btn-danger" style="width:100%;" onclick="excluirAporte()">🗑 Excluir aporte</button>
     </div>
   </div>
 </div>
@@ -1235,6 +1240,7 @@ async function renderizarDashboard() {
 
   if (errLanc) throw errLanc;
 
+  // Transferências excluídas dos cálculos financeiros
   const receitas = (lancDados || []).filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
   const despesas = (lancDados || []).filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
   const saldo = receitas - despesas;
@@ -1484,13 +1490,15 @@ async function renderizarLancamentos() {
   const resumoEl = document.getElementById('lancamentos-resumo');
   if (resumoEl) {
     if (lancamentos.length > 0) {
-      const totalDespesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + l.valor, 0);
-      const totalReceitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + l.valor, 0);
+      const totalDespesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
+      const totalReceitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+      const totalTransf = lancamentos.filter(l => l.tipo === 'transferencia').reduce((s, l) => s + Number(l.valor), 0);
       resumoEl.style.display = 'block';
-      resumoEl.innerHTML = `<div class="card" style="padding:12px 16px;display:flex;justify-content:space-between;font-size:13px;">
+      resumoEl.innerHTML = `<div class="card" style="padding:12px 16px;display:flex;justify-content:space-between;font-size:13px;flex-wrap:wrap;gap:6px;">
         <span style="color:#059669;font-weight:600;">↑ ${R$(totalReceitas)}</span>
         <span style="color:#64748b;">${lancamentos.length} lançamentos</span>
         <span style="color:#dc2626;font-weight:600;">↓ ${R$(totalDespesas)}</span>
+        ${totalTransf > 0 ? `<span style="color:#7c3aed;font-weight:600;">🔄 ${R$(totalTransf)}</span>` : ''}
       </div>`;
     } else {
       resumoEl.style.display = 'none';
@@ -1515,18 +1523,24 @@ async function renderizarLancamentos() {
       html += `<div style="font-size:12px;color:#94a3b8;font-weight:600;margin:16px 0 8px;">${dt.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'}).toUpperCase()}</div><div class="card">`;
       dataAnterior = l.data;
     }
-    const icone = l.categorias?.icone || (l.tipo === 'receita' ? '💰' : '💸');
+    const isTransf = l.tipo === 'transferencia';
+    const icone = isTransf ? '🔄' : (l.categorias?.icone || (l.tipo === 'receita' ? '💰' : '💸'));
+    const corValor = isTransf ? '#7c3aed' : (l.tipo === 'receita' ? '#059669' : '#dc2626');
+    const prefixoValor = isTransf ? '' : (l.tipo === 'receita' ? '+' : '-');
+    const subInfo = isTransf
+      ? 'Transferência / Poupança'
+      : `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' • ' + l.favorecidos.nome : ''}${l.cartoes ? ' • ' + l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' • 🔁' : ''}`;
     html += `
-      <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;">
+      <div class="item-row" onclick="${isTransf ? '' : `editarLancamento('${l.id}')`}" style="cursor:${isTransf ? 'default' : 'pointer'};padding:12px 16px;${isTransf ? 'background:#faf5ff;' : ''}">
         <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
           <div style="font-size:22px;">${icone}</div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</div>
-            <div style="font-size:12px;color:#94a3b8;">${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' • ' + l.favorecidos.nome : ''}${l.cartoes ? ' • ' + l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' • 🔁' : ''}</div>
+            <div style="font-size:12px;color:#94a3b8;">${subInfo}</div>
           </div>
         </div>
-        <div class="${l.tipo === 'receita' ? 'valor-positivo' : 'valor-negativo'}" style="font-size:15px;white-space:nowrap;margin-left:8px;">
-          ${l.tipo === 'receita' ? '+' : '-'} ${R$(l.valor)}
+        <div style="font-size:15px;white-space:nowrap;margin-left:8px;font-weight:600;color:${corValor};">
+          ${prefixoValor} ${R$(l.valor)}
         </div>
       </div>`;
   });
@@ -2952,7 +2966,7 @@ async function renderizarPoupanca() {
   el.innerHTML = '<div class="spinner"></div>';
 
   const { data: metas } = await sb.from('metas_poupanca').select('*').eq('ativa', true).order('nome');
-  const { data: aportes } = await sb.from('aportes_poupanca').select('*');
+  const { data: aportes } = await sb.from('aportes_poupanca').select('*').order('data', { ascending: false });
   const { data: configPoupa } = await sb.from('config_poupanca_mensal').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
 
   const percPoupa = configPoupa?.percentual || 0;
@@ -3020,6 +3034,19 @@ async function renderizarPoupanca() {
           </div>
         ` : ''}
         <button onclick="abrirAporte('${m.id}')" style="width:100%;margin-top:12px;background:#d1fae5;color:#065f46;border:none;border-radius:8px;padding:8px;cursor:pointer;font-size:14px;font-weight:600;">+ Registrar Aporte</button>
+        ${(aportes||[]).filter(a=>a.meta_id===m.id).length > 0 ? `
+        <div style="margin-top:12px;border-top:1px solid #f1f5f9;padding-top:10px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:6px;">HISTÓRICO DE APORTES</div>
+          ${(aportes||[]).filter(a=>a.meta_id===m.id).map(a => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f8fafc;">
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#059669;">🔄 ${R$(a.valor)}</div>
+                <div style="font-size:11px;color:#94a3b8;">${new Date(a.data+'T12:00:00').toLocaleDateString('pt-BR')}${a.observacao ? ' • '+a.observacao : ''}</div>
+              </div>
+              <button onclick="abrirAporte('${m.id}', ${JSON.stringify(a).replace(/"/g,'&quot;')})" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;color:#64748b;">✏️</button>
+            </div>
+          `).join('')}
+        </div>` : ''}
       </div>`;
   });
 
@@ -3088,12 +3115,26 @@ async function excluirMeta() {
   renderizarPoupanca();
 }
 
-function abrirAporte(metaId) {
+function abrirAporte(metaId, aporte = null) {
   document.getElementById('aporte-meta-id').value = metaId;
-  document.getElementById('aporte-valor').value = '';
-  document.getElementById('aporte-data').value = new Date().toISOString().split('T')[0];
-  document.getElementById('aporte-obs').value = '';
+  document.getElementById('aporte-id').value = aporte?.id || '';
+  document.getElementById('aporte-valor').value = aporte?.valor || '';
+  document.getElementById('aporte-data').value = aporte?.data || new Date().toISOString().split('T')[0];
+  document.getElementById('aporte-obs').value = aporte?.observacao || '';
+  document.getElementById('aporte-btn-excluir').classList.toggle('hidden', !aporte);
   abrirModal('modal-aporte');
+}
+
+async function excluirAporte() {
+  if (!confirm('Excluir este aporte? O lançamento de transferência vinculado também será removido.')) return;
+  const id = document.getElementById('aporte-id').value;
+  // Busca o lancamento_id antes de deletar
+  const { data: ap } = await sb.from('aportes_poupanca').select('lancamento_id').eq('id', id).single();
+  await sb.from('aportes_poupanca').delete().eq('id', id);
+  if (ap?.lancamento_id) await sb.from('lancamentos').delete().eq('id', ap.lancamento_id);
+  toast('Aporte excluído', 'ok');
+  fecharModal('modal-aporte');
+  renderizarPoupanca();
 }
 
 async function salvarAporte() {
@@ -3104,7 +3145,30 @@ async function salvarAporte() {
   const uid = (await sb.auth.getUser()).data.user.id;
   const mes = parseInt(data.split('-')[1]);
   const ano = parseInt(data.split('-')[0]);
-  await sb.from('aportes_poupanca').insert({ user_id: uid, meta_id: metaId, mes, ano, valor, data, observacao: document.getElementById('aporte-obs').value || null });
+  const obs = document.getElementById('aporte-obs').value || null;
+
+  // Busca o nome da meta para usar como descrição
+  const { data: meta } = await sb.from('metas_poupanca').select('nome').eq('id', metaId).single();
+  const descricao = `Poupança: ${meta?.nome || 'Meta'}`;
+
+  // Cria o lançamento de transferência vinculado
+  const { data: lancCriado, error: errLanc } = await sb.from('lancamentos').insert({
+    user_id: uid, data, descricao, valor,
+    tipo: 'transferencia', observacao: '__aporte__'
+  }).select().single();
+  if (errLanc) { toast('Erro ao criar transferência: ' + errLanc.message, 'erro'); return; }
+
+  // Salva o aporte com referência ao lançamento
+  const { error: errAporte } = await sb.from('aportes_poupanca').insert({
+    user_id: uid, meta_id: metaId, mes, ano, valor, data,
+    observacao: obs, lancamento_id: lancCriado.id
+  });
+  if (errAporte) {
+    // Reverte o lançamento se o aporte falhou
+    await sb.from('lancamentos').delete().eq('id', lancCriado.id);
+    toast('Erro ao registrar aporte: ' + errAporte.message, 'erro'); return;
+  }
+
   toast('Aporte registrado!', 'ok');
   fecharModal('modal-aporte');
   renderizarPoupanca();
