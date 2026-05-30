@@ -257,6 +257,38 @@
     <div id="config-content"></div>
   </div>
 
+  <div id="page-relatorio" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <h2 style="font-size:18px;font-weight:700;margin:0;">Orçado vs Realizado</h2>
+        <p style="font-size:13px;color:#94a3b8;margin:2px 0 0;">Comparativo mensal por categoria</p>
+      </div>
+    </div>
+    <!-- Seletor de ano -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <button onclick="relatorioAnoAnterior()" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:16px;">‹</button>
+      <span id="rel-ano-label" style="font-weight:700;font-size:15px;color:#1e293b;flex:1;text-align:center;"></span>
+      <button onclick="relatorioAnoProximo()" style="background:#f1f5f9;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:16px;">›</button>
+    </div>
+    <!-- Scroll de meses -->
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;display:flex;gap:8px;padding-bottom:8px;margin-bottom:14px;" id="rel-meses-scroll"></div>
+    <!-- Tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:14px;background:white;padding:4px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+      <button class="tab-btn active" style="flex:1;" id="rel-tab-despesas" onclick="relatorioTrocarAba('despesa')">Despesas</button>
+      <button class="tab-btn" style="flex:1;" id="rel-tab-receitas" onclick="relatorioTrocarAba('receita')">Receitas</button>
+    </div>
+    <!-- Cards resumo -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;" id="rel-cards"></div>
+    <!-- Tabela -->
+    <div class="card" style="overflow:hidden;margin-bottom:14px;">
+      <div style="overflow-x:auto;">
+        <table id="rel-tabela" style="border-collapse:collapse;width:100%;"></table>
+      </div>
+    </div>
+    <!-- Progresso geral -->
+    <div class="card" style="padding:16px;" id="rel-progresso"></div>
+  </div>
+
   <!-- NAVEGAÇÃO INFERIOR -->
   <nav class="bottom-nav">
     <button onclick="navegarPara('dashboard')" id="nav-dashboard" class="active">
@@ -276,6 +308,9 @@
     </button>
     <button onclick="navegarPara('poupanca')" id="nav-poupanca">
       <span class="icon">🎯</span><span>Poupança</span>
+    </button>
+    <button onclick="navegarPara('relatorio')" id="nav-relatorio">
+      <span class="icon">📈</span><span>Relatório</span>
     </button>
   </nav>
 
@@ -844,6 +879,11 @@ let lancamentoEditandoId = null;
 let paginaAtual = 'dashboard';
 let appInicializado = false; // Guard contra múltiplas inicializações
 
+// Estado do relatório orçado vs realizado
+let relAno = anoAtual;
+let relMes = mesAtual;
+let relAba = 'despesa';
+
 // ============================================================
 // UTILITÁRIOS
 // ============================================================
@@ -986,6 +1026,7 @@ function navegarPara(pagina) {
   if (pagina === 'cartoes') renderizarCartoes();
   if (pagina === 'holerite') renderizarHolerite();
   if (pagina === 'poupanca') renderizarPoupanca();
+  if (pagina === 'relatorio') renderizarRelatorio();
 }
 
 // ============================================================
@@ -2420,6 +2461,207 @@ async function copiarOrcamentoMesAnterior() {
   toast('Orçamento copiado!', 'ok');
   fecharModal('modal-orcamento');
   renderizarOrcamento();
+}
+
+// ============================================================
+// RELATÓRIO ORÇADO VS REALIZADO
+// ============================================================
+
+function relatorioAnoAnterior() { relAno--; renderizarRelatorio(); }
+function relatorioAnoProximo()   { relAno++; renderizarRelatorio(); }
+
+function relatorioTrocarAba(aba) {
+  relAba = aba;
+  document.getElementById('rel-tab-despesas').classList.toggle('active', aba === 'despesa');
+  document.getElementById('rel-tab-receitas').classList.toggle('active', aba === 'receita');
+  _renderizarRelatorioConteudo();
+}
+
+async function renderizarRelatorio() {
+  document.getElementById('rel-ano-label').textContent = relAno;
+
+  // Monta seletor de meses
+  const nomesMeses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  let scrollHtml = '';
+  nomesMeses.forEach((nm, i) => {
+    const m = i + 1;
+    const ativo = m === relMes ? 'style="background:#4f46e5;color:white;border-color:#4f46e5;"' : '';
+    scrollHtml += `<button onclick="relatorioSelecionarMes(${m})" style="padding:6px 14px;border-radius:20px;font-size:13px;border:1px solid #e2e8f0;cursor:pointer;background:white;color:#64748b;white-space:nowrap;${m===relMes?'background:#4f46e5;color:white;border-color:#4f46e5;':''}">${nm}</button>`;
+  });
+  document.getElementById('rel-meses-scroll').innerHTML = scrollHtml;
+
+  // Carrega orçamentos e lançamentos do mês/ano
+  const mesStr = String(relMes).padStart(2, '0');
+  const primeiroDia = `${relAno}-${mesStr}-01`;
+  const ultimoDia   = `${relAno}-${mesStr}-${String(ultimoDiaDoMes(relAno, relMes)).padStart(2,'0')}`;
+
+  const [{ data: orcData }, { data: lancData }] = await Promise.all([
+    sb.from('orcamento').select('valor_planejado, categoria_id').eq('mes', relMes).eq('ano', relAno),
+    sb.from('lancamentos').select('valor, tipo, categoria_id').gte('data', primeiroDia).lte('data', ultimoDia),
+  ]);
+
+  // Indexa orçamento por categoria
+  const orcPorCat = {};
+  (orcData || []).forEach(o => { orcPorCat[o.categoria_id] = (orcPorCat[o.categoria_id] || 0) + Number(o.valor_planejado); });
+
+  // Indexa realizado por categoria
+  const realPorCat = {};
+  (lancData || []).forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
+
+  // Guarda no estado global para trocarAba usar sem re-fetch
+  window._relOrcPorCat  = orcPorCat;
+  window._relRealPorCat = realPorCat;
+
+  _renderizarRelatorioConteudo();
+}
+
+function relatorioSelecionarMes(m) {
+  relMes = m;
+  renderizarRelatorio();
+}
+
+function _renderizarRelatorioConteudo() {
+  const orcPorCat  = window._relOrcPorCat  || {};
+  const realPorCat = window._relRealPorCat || {};
+
+  const tipo = relAba; // 'despesa' | 'receita'
+
+  // Monta hierarquia de categorias do tipo selecionado
+  const pais   = categorias.filter(c => !c.parent_id && c.tipo === tipo);
+  const filhos = categorias.filter(c =>  c.parent_id && c.tipo === tipo);
+
+  let totalOrc = 0, totalReal = 0;
+
+  const grupos = pais.map(pai => {
+    const subs = filhos.filter(f => f.parent_id === pai.id);
+
+    // Orçado e realizado da categoria pai (lançamentos diretos)
+    let orcPai  = orcPorCat[pai.id]  || 0;
+    let realPai = realPorCat[pai.id] || 0;
+
+    const subsComDados = subs.map(s => ({
+      nome:      s.nome,
+      orcado:    orcPorCat[s.id]  || 0,
+      realizado: realPorCat[s.id] || 0,
+    }));
+
+    // Totais do grupo = pai + subs
+    const orcGrupo  = orcPai  + subsComDados.reduce((a, s) => a + s.orcado,    0);
+    const realGrupo = realPai + subsComDados.reduce((a, s) => a + s.realizado, 0);
+
+    totalOrc  += orcGrupo;
+    totalReal += realGrupo;
+
+    return {
+      nome:      pai.nome,
+      icone:     pai.icone || '📁',
+      orcado:    orcGrupo,
+      realizado: realGrupo,
+      subs:      subsComDados.filter(s => s.orcado > 0 || s.realizado > 0),
+    };
+  }).filter(g => g.orcado > 0 || g.realizado > 0);
+
+  // --- Helpers ---
+  const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const pct = (real, orc) => orc > 0 ? Math.round((real / orc) * 100) : null;
+  const barColor = p => p === null || p <= 85 ? '#10b981' : p <= 100 ? '#f59e0b' : '#ef4444';
+  const badgeCls = p => p === null ? '' : p <= 85 ? 'badge-verde' : p <= 100 ? 'badge-amarelo' : 'badge-vermelho';
+  const saldoHtml = (orc, real) => {
+    const diff = orc - real;
+    if (diff === 0) return `<span style="color:#94a3b8;font-weight:600;">${fmt(0)}</span>`;
+    const cls = diff > 0 ? 'valor-positivo' : 'valor-negativo';
+    return `<span class="${cls}">${diff > 0 ? '+' : ''}${fmt(diff)}</span>`;
+  };
+
+  // --- Cards de resumo ---
+  const p = pct(totalReal, totalOrc);
+  document.getElementById('rel-cards').innerHTML = `
+    <div class="card" style="padding:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Orçado</div>
+      <div style="font-size:20px;font-weight:700;color:#1e293b;">${fmt(totalOrc)}</div>
+    </div>
+    <div class="card" style="padding:14px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Realizado</div>
+      <div style="font-size:20px;font-weight:700;color:${totalReal > totalOrc && tipo==='despesa' ? '#dc2626' : '#1e293b'};">${fmt(totalReal)}</div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:2px;">${p !== null ? p + '% do orçado' : '—'}</div>
+    </div>
+  `;
+
+  // --- Progresso geral ---
+  const pctVal = Math.min(p ?? 0, 100);
+  const cor = barColor(p);
+  const diff = totalOrc - totalReal;
+  const diffLabel = tipo === 'despesa'
+    ? (diff >= 0 ? `Sobrou ${fmt(Math.abs(diff))}` : `Estourou ${fmt(Math.abs(diff))}`)
+    : (diff <= 0 ? `Recebeu ${fmt(Math.abs(diff))} a mais` : `Faltou ${fmt(Math.abs(diff))}`);
+  const diffCls = (tipo === 'despesa' && diff >= 0) || (tipo === 'receita' && diff <= 0) ? 'valor-positivo' : 'valor-negativo';
+  document.getElementById('rel-progresso').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="font-size:13px;font-weight:600;color:#374151;">Uso do orçamento</div>
+      <div style="font-size:13px;font-weight:700;color:${cor};">${p ?? '—'}%</div>
+    </div>
+    <div class="progress-bar" style="margin-bottom:8px;">
+      <div class="progress-fill" style="width:${pctVal}%;background:${cor};"></div>
+    </div>
+    <div style="font-size:13px;" class="${diffCls}">${totalOrc > 0 ? diffLabel : 'Sem orçamento definido para este mês.'}</div>
+  `;
+
+  // --- Tabela ---
+  if (grupos.length === 0) {
+    document.getElementById('rel-tabela').innerHTML = `
+      <tr><td colspan="4" style="text-align:center;padding:40px;color:#94a3b8;font-size:14px;">Nenhum orçamento ou lançamento neste mês.</td></tr>
+    `;
+    return;
+  }
+
+  let html = `
+    <thead>
+      <tr style="background:#f8fafc;">
+        <th style="font-size:12px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:8px 12px;text-align:left;white-space:nowrap;">Categoria</th>
+        <th style="font-size:12px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:8px 12px;text-align:right;white-space:nowrap;">Orçado</th>
+        <th style="font-size:12px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:8px 12px;text-align:right;white-space:nowrap;">Realizado</th>
+        <th style="font-size:12px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:8px 12px;text-align:right;white-space:nowrap;">Saldo</th>
+      </tr>
+    </thead>
+    <tbody>
+  `;
+
+  grupos.forEach(g => {
+    const gp = pct(g.realizado, g.orcado);
+    const gc = barColor(gp);
+    html += `
+      <tr style="border-bottom:1px solid #f1f5f9;">
+        <td style="padding:10px 12px;font-size:14px;text-align:left;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span>${g.icone}</span>
+            <span style="font-weight:600;color:#374151;">${g.nome}</span>
+            ${gp !== null ? `<span class="${badgeCls(gp)}" style="border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;">${gp}%</span>` : ''}
+          </div>
+          <div class="progress-bar" style="margin-top:6px;width:120px;">
+            <div class="progress-fill" style="width:${Math.min(gp??0,100)}%;background:${gc};"></div>
+          </div>
+        </td>
+        <td style="padding:10px 12px;font-size:14px;text-align:right;white-space:nowrap;color:#64748b;">${fmt(g.orcado)}</td>
+        <td style="padding:10px 12px;font-size:14px;text-align:right;white-space:nowrap;font-weight:600;color:#1e293b;">${fmt(g.realizado)}</td>
+        <td style="padding:10px 12px;font-size:14px;text-align:right;white-space:nowrap;">${saldoHtml(g.orcado, g.realizado)}</td>
+      </tr>
+    `;
+    g.subs.forEach(s => {
+      html += `
+        <tr style="background:#fafafa;border-bottom:1px solid #f1f5f9;">
+          <td style="padding:8px 12px 8px 28px;font-size:13px;color:#64748b;text-align:left;">
+            <span style="color:#c4b5fd;margin-right:4px;">↳</span>${s.nome}
+          </td>
+          <td style="padding:8px 12px;font-size:13px;text-align:right;white-space:nowrap;color:#94a3b8;">${fmt(s.orcado)}</td>
+          <td style="padding:8px 12px;font-size:13px;text-align:right;white-space:nowrap;color:#64748b;">${fmt(s.realizado)}</td>
+          <td style="padding:8px 12px;font-size:13px;text-align:right;white-space:nowrap;">${saldoHtml(s.orcado, s.realizado)}</td>
+        </tr>
+      `;
+    });
+  });
+
+  html += '</tbody>';
+  document.getElementById('rel-tabela').innerHTML = html;
 }
 
 // ============================================================
