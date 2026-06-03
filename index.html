@@ -1984,6 +1984,18 @@ function abrirImportacao() {
   abrirModal('modal-importar');
 }
 
+function atualizarSubcatImport(i) {
+  const catId = document.getElementById(`tr-cat-${i}`).value;
+  const subGroup = document.getElementById(`tr-subcat-group-${i}`);
+  const subSel = document.getElementById(`tr-subcat-${i}`);
+  if (!catId) { subGroup.style.display = 'none'; return; }
+  const subs = categorias.filter(c => c.parent_id === catId);
+  if (subs.length === 0) { subGroup.style.display = 'none'; return; }
+  subSel.innerHTML = '<option value="">Nenhuma subcategoria</option>' +
+    subs.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+  subGroup.style.display = '';
+}
+
 async function processarExtrato() {
   const texto = document.getElementById('extrato-texto').value.trim();
   if (!texto) { toast('Cole o texto do extrato', 'erro'); return; }
@@ -2048,22 +2060,43 @@ async function processarExtrato() {
 
   let html = `<div style="font-size:14px;font-weight:600;margin-bottom:12px;">${transacoes.length} transações identificadas:</div>`;
   transacoes.forEach((t, i) => {
+    const isPix = t.descricao?.toLowerCase().includes('pix');
+    const formaAuto = isPix ? 'pix' : 'dinheiro';
     html += `
       <div class="card" style="padding:12px;margin-bottom:8px;">
         <div style="display:flex;align-items:start;gap:10px;">
           <input type="checkbox" id="tr-${i}" checked style="width:auto;margin-top:2px;" />
           <div style="flex:1;">
-            <div style="font-weight:600;font-size:13px;">${t.descricao}</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:6px;" data-desc="${t.descricao.replace(/"/g,'&quot;')}">${t.descricao}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <input type="date" id="tr-data-${i}" value="${t.data}" style="font-size:12px;padding:4px 8px;" />
               <select id="tr-tipo-${i}" style="font-size:12px;padding:4px 8px;">
                 <option value="despesa" ${t.tipo==='despesa'?'selected':''}>Despesa</option>
                 <option value="receita" ${t.tipo==='receita'?'selected':''}>Receita</option>
               </select>
               <input type="number" id="tr-valor-${i}" value="${t.valor.toFixed(2)}" style="font-size:12px;padding:4px 8px;" step="0.01" />
-              <select id="tr-cat-${i}" style="font-size:12px;padding:4px 8px;">
+              <select id="tr-cat-${i}" onchange="atualizarSubcatImport(${i})" style="font-size:12px;padding:4px 8px;">
                 <option value="">Sem categoria</option>
-                ${categorias.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
+                ${categorias.filter(c => !c.parent_id).map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
+              </select>
+            </div>
+            <div id="tr-subcat-group-${i}" style="display:none;margin-top:6px;">
+              <select id="tr-subcat-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
+                <option value="">Nenhuma subcategoria</option>
+              </select>
+            </div>
+            <div style="margin-top:6px;">
+              <select id="tr-fav-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
+                <option value="">Favorecido (opcional)</option>
+                ${favorecidos.map(f => `<option value="${f.id}">${f.nome}</option>`).join('')}
+              </select>
+            </div>
+            <div style="margin-top:6px;">
+              <select id="tr-forma-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
+                <option value="dinheiro" ${formaAuto==='dinheiro'?'selected':''}>💵 Dinheiro</option>
+                <option value="debito">💳 Débito</option>
+                <option value="pix" ${formaAuto==='pix'?'selected':''}>📱 PIX</option>
+                <option value="cartao">💳 Cartão</option>
               </select>
             </div>
           </div>
@@ -2080,13 +2113,26 @@ async function confirmarImportacao(total) {
   const inserts = [];
   for (let i = 0; i < total; i++) {
     if (!document.getElementById(`tr-${i}`).checked) continue;
+    const catId = document.getElementById(`tr-cat-${i}`).value || null;
+    const subCatId = document.getElementById(`tr-subcat-${i}`)?.value || null;
+    const catIdFinal = subCatId || catId;
+    const favId = document.getElementById(`tr-fav-${i}`).value || null;
+    const forma = document.getElementById(`tr-forma-${i}`).value || 'dinheiro';
+    const tipo = document.getElementById(`tr-tipo-${i}`).value;
+    const favNome = favId ? (favorecidos.find(f => f.id === favId)?.nome || '') : '';
+    const catNome = catIdFinal ? (categorias.find(c => c.id === catIdFinal)?.nome || '') : '';
+    const descEl = document.getElementById(`tr-${i}`).closest('.card').querySelector('[data-desc]');
+    const descOriginal = descEl?.dataset.desc || `Transação ${i+1}`;
+    const desc = favNome || catNome || descOriginal;
     inserts.push({
       user_id: uid,
       data: document.getElementById(`tr-data-${i}`).value,
-      descricao: document.querySelectorAll('.card .font-weight-600')[i]?.textContent || `Transação ${i+1}`,
+      descricao: desc,
       valor: parseFloat(document.getElementById(`tr-valor-${i}`).value),
-      tipo: document.getElementById(`tr-tipo-${i}`).value,
-      categoria_id: document.getElementById(`tr-cat-${i}`).value || null
+      tipo,
+      categoria_id: catIdFinal,
+      favorecido_id: favId,
+      forma_pagamento: forma
     });
   }
   if (inserts.length === 0) { toast('Nenhuma transação selecionada', 'erro'); return; }
