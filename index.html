@@ -2019,13 +2019,23 @@ function atualizarCatsPorTipo(i) {
 function atualizarSubcatImport(i) {
   const catId = document.getElementById(`tr-cat-${i}`).value;
   const subGroup = document.getElementById(`tr-subcat-group-${i}`);
+  const subBtn = document.getElementById(`tr-subcat-btn-${i}`);
   const subSel = document.getElementById(`tr-subcat-${i}`);
-  if (!catId) { subGroup.style.display = 'none'; return; }
+  if (!catId) {
+    subGroup.style.display = 'none';
+    if (subBtn) subBtn.style.display = 'none';
+    return;
+  }
   const subs = categorias.filter(c => c.parent_id === catId);
-  if (subs.length === 0) { subGroup.style.display = 'none'; return; }
-  subSel.innerHTML = '<option value="">Nenhuma subcategoria</option>' +
-    subs.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
-  subGroup.style.display = '';
+  if (subs.length > 0) {
+    subSel.innerHTML = '<option value="">Nenhuma subcategoria</option>' +
+      subs.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+    subGroup.style.display = '';
+    if (subBtn) subBtn.style.display = 'none';
+  } else {
+    subGroup.style.display = 'none';
+    if (subBtn) subBtn.style.display = '';
+  }
 }
 
 // Parser para extrato Bradesco (cada campo em linha separada)
@@ -2162,9 +2172,8 @@ async function processarExtrato() {
 function detectarForma(descricao) {
   const d = descricao.toLowerCase();
   if (d.includes('pix') || d.includes('transf')) return 'pix';
-  if (d.includes('visa') || d.includes('master') || d.includes('débito') || d.includes('debito') || d.includes('debit')) return 'debito';
   if (d.includes('cartão') || d.includes('cartao') || d.includes('crédito') || d.includes('credito')) return 'cartao';
-  return 'dinheiro';
+  return 'debito';
 }
 
 function renderizarTransacoesImportadas(transacoes) {
@@ -2202,6 +2211,9 @@ function renderizarTransacoesImportadas(transacoes) {
                 </select>
                 <button type="button" onclick="abrirSubcatParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Nova subcategoria">+</button>
               </div>
+            </div>
+            <div id="tr-subcat-btn-${i}" style="display:none;margin-top:4px;">
+              <button type="button" onclick="abrirSubcatParaImport(${i})" style="font-size:12px;color:#6d28d9;background:none;border:none;cursor:pointer;padding:0;">+ Nova subcategoria</button>
             </div>
             <div style="margin-top:6px;">
               <select id="tr-fav-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
