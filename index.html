@@ -590,6 +590,10 @@
       <h3 style="margin:0;font-size:18px;font-weight:700;">Holerite — <span id="hol-mes-titulo"></span></h3>
       <button onclick="fecharModal('modal-holerite')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;">
+      <label style="font-size:14px;margin:0;white-space:nowrap;">📅 Data de pagamento</label>
+      <input type="date" id="hol-data" style="flex:1;" />
+    </div>
     <!-- PROVENTOS -->
     <div style="margin-bottom:18px;">
       <div style="font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">💼 Proventos</div>
@@ -3372,6 +3376,11 @@ async function abrirModalHolerite() {
     el.value = val !== null ? val : '';
   });
 
+  // Data: usa a data de um lançamento existente ou padrão dia 05
+  const dataExistente = lancs.length > 0 ? lancs[0].data : null;
+  const dataPadrao = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-05`;
+  document.getElementById('hol-data').value = dataExistente || dataPadrao;
+
   recalcularHolerite();
   abrirModal('modal-holerite');
 }
@@ -3390,13 +3399,15 @@ function recalcularHolerite() {
 
 async function salvarHolerite() {
   const uid = (await sb.auth.getUser()).data.user.id;
-  const dataLanc = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
+  const dataLanc = document.getElementById('hol-data').value;
+  if (!dataLanc) { toast('Informe a data de pagamento', 'erro'); return; }
+  const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
 
   // Apaga lançamentos de holerite do mês
   const { error: errDelete } = await sb.from('lancamentos').delete()
     .eq('user_id', uid).eq('observacao', '__hol__')
-    .gte('data', dataLanc).lte('data', dataFim);
+    .gte('data', dataInicio).lte('data', dataFim);
   if (errDelete) { toast('Erro ao atualizar holerite: ' + errDelete.message, 'erro'); return; }
 
   // Cria novos lançamentos para cada campo preenchido
