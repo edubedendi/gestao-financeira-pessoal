@@ -1121,6 +1121,7 @@ function navegarPara(pagina) {
   if (pagina === 'poupanca') renderizarPoupanca();
   if (pagina === 'relatorio') renderizarRelatorio();
   if (pagina === 'extrato') renderizarExtrato();
+  if (pagina === 'config') renderizarConfig();
 }
 
 // ============================================================
@@ -3149,6 +3150,11 @@ async function salvarConta() {
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Conta atualizada!', 'ok');
   } else {
+    // Verifica duplicata pelo nome
+    const nomeLower = nome.toLowerCase();
+    if (contas.some(c => c.nome.toLowerCase() === nomeLower)) {
+      toast('Já existe uma conta com este nome.', 'erro'); return;
+    }
     const { error } = await sb.from('contas').insert({ user_id: uid, nome, banco, tipo, saldo_inicial: saldoInicial });
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Conta criada!', 'ok');
