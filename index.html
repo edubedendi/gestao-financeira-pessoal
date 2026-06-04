@@ -594,12 +594,16 @@
     <div style="margin-bottom:18px;">
       <div style="font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">💼 Proventos</div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <label style="flex:1;font-size:14px;margin:0;">💼 Salário Base</label>
-        <input type="number" id="hol-salario" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+        <label style="flex:1;font-size:14px;margin:0;">💼 Horas Normais</label>
+        <input type="number" id="hol-horas_normais" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <label style="flex:1;font-size:14px;margin:0;">💰 Outros Proventos</label>
-        <input type="number" id="hol-outros_prov" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+        <label style="flex:1;font-size:14px;margin:0;">☀️ Horas Extras c/ 50%</label>
+        <input type="number" id="hol-horas_extras" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="flex:1;font-size:14px;margin:0;">🌙 DSR Reflexo</label>
+        <input type="number" id="hol-dsr" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
     </div>
     <!-- DESCONTOS FISCAIS -->
@@ -619,16 +623,20 @@
     <div style="margin-bottom:18px;">
       <div style="font-size:11px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">💊 Outros Descontos</div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <label style="flex:1;font-size:14px;margin:0;">🚌 Vale Transporte</label>
-        <input type="number" id="hol-vt" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+        <label style="flex:1;font-size:14px;margin:0;">🍽️ Desconto Refeição</label>
+        <input type="number" id="hol-desc_refeicao" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <label style="flex:1;font-size:14px;margin:0;">🏥 Plano de Saúde</label>
-        <input type="number" id="hol-ps" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+        <label style="flex:1;font-size:14px;margin:0;">🍱 Refeição Empresa</label>
+        <input type="number" id="hol-refeicao_emp" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <label style="flex:1;font-size:14px;margin:0;">➖ Outros Descontos</label>
-        <input type="number" id="hol-outros_desc" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+        <label style="flex:1;font-size:14px;margin:0;">🛡️ Seguro de Vida</label>
+        <input type="number" id="hol-seguro_vida" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="flex:1;font-size:14px;margin:0;">🏢 Taxa Sindicato</label>
+        <input type="number" id="hol-taxa_sind" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
     </div>
     <!-- RESUMO -->
@@ -3168,13 +3176,15 @@ async function excluirCartao() {
 
 // Campos fixos do holerite — sem dependência de holerite_tipo nas categorias
 const HOL_FIELDS = [
-  { id: 'salario',      label: 'Salário Base',      tipo: 'receita', icone: '💼', catNome: 'Salário',              grupo: 'provento' },
-  { id: 'outros_prov',  label: 'Outros Proventos',  tipo: 'receita', icone: '💰', catNome: 'Outros Proventos',     grupo: 'provento' },
-  { id: 'inss',         label: 'INSS',              tipo: 'despesa', icone: '🏛️', catNome: 'INSS',                 grupo: 'fiscal'   },
-  { id: 'irrf',         label: 'IRRF',              tipo: 'despesa', icone: '📋', catNome: 'IRRF',                 grupo: 'fiscal'   },
-  { id: 'vt',           label: 'Vale Transporte',   tipo: 'despesa', icone: '🚌', catNome: 'Vale Transporte',      grupo: 'desconto' },
-  { id: 'ps',           label: 'Plano de Saúde',    tipo: 'despesa', icone: '🏥', catNome: 'Plano de Saúde',       grupo: 'desconto' },
-  { id: 'outros_desc',  label: 'Outros Descontos',  tipo: 'despesa', icone: '➖', catNome: 'Outros Descontos',     grupo: 'desconto' },
+  { id: 'horas_normais', label: 'Horas Normais',        tipo: 'receita', icone: '💼', catNome: 'Horas normais',               grupo: 'provento' },
+  { id: 'horas_extras',  label: 'Horas Extras c/ 50%',  tipo: 'receita', icone: '☀️', catNome: 'Horas extras c/ 50%',         grupo: 'provento' },
+  { id: 'dsr',           label: 'DSR Reflexo',           tipo: 'receita', icone: '🌙', catNome: 'DSR reflexo',                 grupo: 'provento' },
+  { id: 'inss',          label: 'INSS',                  tipo: 'despesa', icone: '🏛️', catNome: 'INSS',                        grupo: 'fiscal'   },
+  { id: 'irrf',          label: 'IRRF',                  tipo: 'despesa', icone: '📋', catNome: 'IRRF',                        grupo: 'fiscal'   },
+  { id: 'desc_refeicao', label: 'Desconto Refeição',     tipo: 'despesa', icone: '🍽️', catNome: 'Desconto refeição',           grupo: 'desconto' },
+  { id: 'refeicao_emp',  label: 'Refeição Empresa',      tipo: 'despesa', icone: '🍱', catNome: 'Refeição empresa',            grupo: 'desconto' },
+  { id: 'seguro_vida',   label: 'Seguro de Vida',         tipo: 'despesa', icone: '🛡️', catNome: 'Seguro de vida',             grupo: 'desconto' },
+  { id: 'taxa_sind',     label: 'Taxa Sindicato',         tipo: 'despesa', icone: '🏢', catNome: 'Taxa assistencial sindicato', grupo: 'desconto' },
 ];
 
 // Encontra categoria pelo nome ou cria automaticamente
