@@ -2004,6 +2004,18 @@ function abrirImportacao() {
   abrirModal('modal-importar');
 }
 
+function atualizarCatsPorTipo(i) {
+  const tipo = document.getElementById(`tr-tipo-${i}`).value;
+  const sel = document.getElementById(`tr-cat-${i}`);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Sem categoria</option>' +
+    categorias.filter(c => !c.parent_id && c.tipo === tipo)
+      .map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+  // Limpa subcategoria ao trocar tipo
+  const subGroup = document.getElementById(`tr-subcat-group-${i}`);
+  if (subGroup) subGroup.style.display = 'none';
+}
+
 function atualizarSubcatImport(i) {
   const catId = document.getElementById(`tr-cat-${i}`).value;
   const subGroup = document.getElementById(`tr-subcat-group-${i}`);
@@ -2170,7 +2182,7 @@ function renderizarTransacoesImportadas(transacoes) {
             <div style="font-weight:600;font-size:13px;margin-bottom:6px;" data-desc="${t.descricao.replace(/"/g,'&quot;')}">${t.descricao}</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <input type="date" id="tr-data-${i}" value="${t.data}" style="font-size:12px;padding:4px 8px;" />
-              <select id="tr-tipo-${i}" style="font-size:12px;padding:4px 8px;">
+              <select id="tr-tipo-${i}" onchange="atualizarCatsPorTipo(${i})" style="font-size:12px;padding:4px 8px;">
                 <option value="despesa" ${t.tipo==='despesa'?'selected':''}>Despesa</option>
                 <option value="receita" ${t.tipo==='receita'?'selected':''}>Receita</option>
               </select>
@@ -2178,7 +2190,7 @@ function renderizarTransacoesImportadas(transacoes) {
               <div style="display:flex;gap:4px;">
                 <select id="tr-cat-${i}" onchange="atualizarSubcatImport(${i})" style="font-size:12px;padding:4px 8px;flex:1;">
                   <option value="">Sem categoria</option>
-                  ${categorias.filter(c => !c.parent_id).map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
+                  ${categorias.filter(c => !c.parent_id && c.tipo === t.tipo).map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
                 </select>
                 <button type="button" onclick="abrirCatParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Nova categoria">+</button>
               </div>
