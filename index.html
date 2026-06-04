@@ -257,6 +257,15 @@
     <div id="config-content"></div>
   </div>
 
+  <div id="page-extrato" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">Extrato</h2>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalConta()">+ Conta</button>
+    </div>
+    <div style="margin-bottom:14px;" id="extrato-sel-conta-wrap"></div>
+    <div id="extrato-conta-content"><div class="spinner"></div></div>
+  </div>
+
   <div id="page-relatorio" class="page">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div>
@@ -322,6 +331,9 @@
     <button onclick="navegarPara('relatorio')" id="nav-relatorio">
       <span class="icon">📈</span><span>Relatório</span>
     </button>
+    <button onclick="navegarPara('extrato')" id="nav-extrato">
+      <span class="icon">🏦</span><span>Extrato</span>
+    </button>
   </nav>
 
 </div>
@@ -353,6 +365,14 @@
           </select>
           <button type="button" onclick="abrirModalFavorecidoRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;white-space:nowrap;" title="Cadastrar novo favorecido">+</button>
         </div>
+      </div>
+
+      <!-- Conta -->
+      <div>
+        <label>Conta</label>
+        <select id="lanc-conta">
+          <option value="">Sem conta vinculada</option>
+        </select>
       </div>
 
       <!-- Valor e Data lado a lado -->
@@ -579,6 +599,47 @@
     </div>
     <div style="margin-top:12px;" id="cartao-btn-excluir" class="hidden">
       <button class="btn-danger" style="width:100%;" onclick="excluirCartao()">🗑 Excluir cartão</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Conta -->
+<div id="modal-conta" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-conta-titulo">Nova Conta</h3>
+      <button onclick="fecharModal('modal-conta')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="conta-id" />
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Nome / Apelido</label>
+        <input type="text" id="conta-nome" placeholder="Ex: Bradesco Corrente" />
+      </div>
+      <div>
+        <label>Banco</label>
+        <input type="text" id="conta-banco" placeholder="Ex: Bradesco" />
+      </div>
+      <div>
+        <label>Tipo</label>
+        <select id="conta-tipo">
+          <option value="corrente">Conta Corrente</option>
+          <option value="poupanca">Poupança</option>
+          <option value="investimento">Investimento</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div>
+        <label>Saldo Inicial (R$)</label>
+        <input type="number" id="conta-saldo-inicial" placeholder="0,00" step="0.01" />
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-conta')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarConta()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="conta-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirConta()">🗑 Remover conta</button>
     </div>
   </div>
 </div>
@@ -902,6 +963,7 @@ let mesAtual = new Date().getMonth() + 1;
 let anoAtual = new Date().getFullYear();
 let categorias = [];
 let cartoes = [];
+let contas = [];
 let favorecidos = [];
 let recorrencias = [];
 
@@ -1019,6 +1081,7 @@ async function inicializar(user) {
   try {
     await comTimeout(carregarCategorias(), 30000);
     await comTimeout(carregarCartoes(), 30000);
+    await comTimeout(carregarContas(), 30000);
     await comTimeout(carregarFavorecidos(), 30000);
     await comTimeout(carregarRecorrencias(), 30000);
     await processarRecorrencias();
@@ -1057,6 +1120,7 @@ function navegarPara(pagina) {
   if (pagina === 'holerite') renderizarHolerite();
   if (pagina === 'poupanca') renderizarPoupanca();
   if (pagina === 'relatorio') renderizarRelatorio();
+  if (pagina === 'extrato') renderizarExtrato();
 }
 
 // ============================================================
@@ -1712,6 +1776,7 @@ function abrirModalLancamento() {
   setTipoLancamento('despesa');
   popularSelectCartoes();
   popularSelectFavorecidos('lanc-favorecido');
+  popularSelectContas('lanc-conta');
   abrirModal('modal-lancamento');
 }
 
@@ -1744,6 +1809,7 @@ async function editarLancamento(id) {
   }
   popularSelectCartoes();
   popularSelectFavorecidos('lanc-favorecido', l.favorecido_id || '');
+  popularSelectContas('lanc-conta', l.conta_id || '');
   // Restaura forma de pagamento
   const forma = l.forma_pagamento || (l.cartao_id ? 'cartao' : 'dinheiro');
   setFormaPgto(forma);
@@ -1907,6 +1973,7 @@ async function salvarLancamento() {
   const forma = document.getElementById('lanc-forma-pgto').value || 'dinheiro';
   const cartaoId = forma === 'cartao' ? (document.getElementById('lanc-cartao').value || null) : null;
   const favId = document.getElementById('lanc-favorecido').value || null;
+  const contaId = document.getElementById('lanc-conta')?.value || null;
   const obs = document.getElementById('lanc-obs').value.trim() || null;
   const parcelas = parseInt(document.getElementById('lanc-parcelas').value) || 1;
   // Descrição vem do favorecido selecionado, ou da categoria, ou genérico
@@ -1921,7 +1988,7 @@ async function salvarLancamento() {
   const ehRecorrente = document.getElementById('lanc-recorrente').checked;
 
   if (id) {
-    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs }).eq('id', id);
+    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, observacao: obs }).eq('id', id);
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Lançamento atualizado!', 'ok');
   } else if (ehRecorrente) {
@@ -1937,7 +2004,7 @@ async function salvarLancamento() {
     await sb.from('lancamentos').insert({
       user_id: uid, descricao: desc, valor, data, tipo,
       categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId,
-      forma_pagamento: forma, observacao: obs, recorrencia_id: rec.id
+      conta_id: contaId, forma_pagamento: forma, observacao: obs, recorrencia_id: rec.id
     });
     await carregarRecorrencias();
     fecharModal('modal-lancamento');
@@ -1973,7 +2040,7 @@ async function salvarLancamento() {
         descricao: `${desc} (${i+1}/${parcelas})`,
         valor: valorParcela,
         data: dataParc,
-        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs,
+        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, observacao: obs,
         parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: grupoId
       });
     }
@@ -1983,7 +2050,7 @@ async function salvarLancamento() {
   } else {
     // Simples
     const uid = (await sb.auth.getUser()).data.user.id;
-    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, forma_pagamento: forma, observacao: obs });
+    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, observacao: obs });
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Lançamento salvo!', 'ok');
   }
@@ -3025,6 +3092,241 @@ function _renderizarRelatorioConteudo() {
 }
 
 // ============================================================
+// CONTAS
+// ============================================================
+async function carregarContas() {
+  const { data } = await sb.from('contas').select('*').eq('ativo', true).order('nome');
+  contas = data || [];
+}
+
+function popularSelectContas(selectId, valorAtual = '') {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Sem conta vinculada</option>';
+  contas.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = '🏦 ' + c.nome;
+    if (c.id === valorAtual) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function abrirModalConta() {
+  document.getElementById('conta-id').value = '';
+  document.getElementById('modal-conta-titulo').textContent = 'Nova Conta';
+  document.getElementById('conta-nome').value = '';
+  document.getElementById('conta-banco').value = 'Bradesco';
+  document.getElementById('conta-tipo').value = 'corrente';
+  document.getElementById('conta-saldo-inicial').value = '';
+  document.getElementById('conta-btn-excluir').classList.add('hidden');
+  abrirModal('modal-conta');
+}
+
+async function editarConta(id) {
+  const c = contas.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('conta-id').value = id;
+  document.getElementById('modal-conta-titulo').textContent = 'Editar Conta';
+  document.getElementById('conta-nome').value = c.nome;
+  document.getElementById('conta-banco').value = c.banco || 'Bradesco';
+  document.getElementById('conta-tipo').value = c.tipo || 'corrente';
+  document.getElementById('conta-saldo-inicial').value = c.saldo_inicial || 0;
+  document.getElementById('conta-btn-excluir').classList.remove('hidden');
+  abrirModal('modal-conta');
+}
+
+async function salvarConta() {
+  const nome = document.getElementById('conta-nome').value.trim();
+  if (!nome) { toast('Informe o nome da conta', 'erro'); return; }
+  const banco = document.getElementById('conta-banco').value.trim() || 'Bradesco';
+  const tipo = document.getElementById('conta-tipo').value;
+  const saldoInicial = parseFloat(document.getElementById('conta-saldo-inicial').value) || 0;
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const id = document.getElementById('conta-id').value;
+  if (id) {
+    const { error } = await sb.from('contas').update({ nome, banco, tipo, saldo_inicial: saldoInicial }).eq('id', id);
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    toast('Conta atualizada!', 'ok');
+  } else {
+    const { error } = await sb.from('contas').insert({ user_id: uid, nome, banco, tipo, saldo_inicial: saldoInicial });
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    toast('Conta criada!', 'ok');
+  }
+  await carregarContas();
+  fecharModal('modal-conta');
+  if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'extrato') renderizarExtrato();
+}
+
+async function excluirConta() {
+  if (!confirm('Remover esta conta? Os lançamentos vinculados não serão apagados.')) return;
+  const id = document.getElementById('conta-id').value;
+  await sb.from('contas').update({ ativo: false }).eq('id', id);
+  await carregarContas();
+  toast('Conta removida', 'ok');
+  fecharModal('modal-conta');
+  if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'extrato') renderizarExtrato();
+}
+
+// ============================================================
+// EXTRATO POR CONTA
+// ============================================================
+let extratoContaAtual = null;
+
+async function renderizarExtrato() {
+  const el = document.getElementById('extrato-conta-content');
+  const wrap = document.getElementById('extrato-sel-conta-wrap');
+  if (!el) return;
+
+  await carregarContas();
+
+  if (contas.length === 0) {
+    if (wrap) wrap.innerHTML = '';
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">🏦</div>
+      <div>Nenhuma conta cadastrada.</div>
+      <div style="font-size:13px;margin-top:4px;">Crie uma conta clicando em "+ Conta".</div>
+    </div>`;
+    return;
+  }
+
+  if (!extratoContaAtual || !contas.find(c => c.id === extratoContaAtual)) {
+    extratoContaAtual = contas[0].id;
+  }
+
+  if (wrap) {
+    if (contas.length === 1) {
+      const c = contas[0];
+      wrap.innerHTML = `<div style="background:#4f46e5;color:white;border-radius:10px;padding:12px 16px;">
+        <div style="font-weight:700;font-size:15px;">🏦 ${c.nome}</div>
+        <div style="font-size:12px;opacity:0.8;">${c.banco} · ${c.tipo === 'corrente' ? 'Conta Corrente' : c.tipo === 'poupanca' ? 'Poupança' : 'Outro'}</div>
+      </div>`;
+    } else {
+      wrap.innerHTML = `<div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px;">
+        ${contas.map(c => `
+          <button onclick="trocarContaExtrato('${c.id}')" style="flex-shrink:0;padding:8px 14px;border-radius:10px;border:2px solid ${c.id===extratoContaAtual?'#4f46e5':'#e2e8f0'};background:${c.id===extratoContaAtual?'#4f46e5':'white'};color:${c.id===extratoContaAtual?'white':'#374151'};font-size:13px;font-weight:600;cursor:pointer;">
+            🏦 ${c.nome}
+          </button>`).join('')}
+      </div>`;
+    }
+  }
+
+  const conta = contas.find(c => c.id === extratoContaAtual);
+  if (!conta) return;
+
+  el.innerHTML = '<div class="spinner"></div>';
+
+  const mesStr = String(mesAtual).padStart(2, '0');
+  const inicioMes = `${anoAtual}-${mesStr}-01`;
+  const fimMes = `${anoAtual}-${mesStr}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2, '0')}`;
+
+  const { data: lancMes } = await sb.from('lancamentos')
+    .select('*, categorias(nome,icone), favorecidos(nome)')
+    .eq('conta_id', extratoContaAtual)
+    .gte('data', inicioMes)
+    .lte('data', fimMes)
+    .order('data', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  const { data: lancAnteriores } = await sb.from('lancamentos')
+    .select('valor,tipo')
+    .eq('conta_id', extratoContaAtual)
+    .lt('data', inicioMes);
+
+  const saldoAnteriorMes = (conta.saldo_inicial || 0) + (lancAnteriores || []).reduce((s, l) => {
+    return s + (l.tipo === 'receita' ? Number(l.valor) : -Number(l.valor));
+  }, 0);
+
+  const lancamentos = lancMes || [];
+  const receitasMes = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+  const despesasMes = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
+  const saldoFinal = saldoAnteriorMes + receitasMes - despesasMes;
+
+  const grupos = {};
+  lancamentos.forEach(l => {
+    if (!grupos[l.data]) grupos[l.data] = [];
+    grupos[l.data].push(l);
+  });
+
+  let saldoAcum = saldoAnteriorMes;
+  let htmlLanc = '';
+
+  if (lancamentos.length === 0) {
+    htmlLanc = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+      <div style="font-size:40px;margin-bottom:12px;">📋</div>
+      <div>Nenhum lançamento nesta conta em ${meses[mesAtual-1]} ${anoAtual}.</div>
+      <div style="font-size:13px;margin-top:6px;">Ao criar um lançamento, selecione esta conta no campo "Conta".</div>
+    </div>`;
+  } else {
+    Object.keys(grupos).sort().forEach(data => {
+      const grupo = grupos[data];
+      const movDia = grupo.reduce((s, l) => s + (l.tipo === 'receita' ? Number(l.valor) : -Number(l.valor)), 0);
+      saldoAcum += movDia;
+      const dt = new Date(data + 'T12:00:00');
+      const dataBR = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).toUpperCase();
+      const corSaldoDia = saldoAcum >= 0 ? '#059669' : '#dc2626';
+
+      htmlLanc += `<div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div style="font-size:11px;color:#94a3b8;font-weight:600;">${dataBR}</div>
+          <div style="font-size:12px;font-weight:700;color:${corSaldoDia};">Saldo: ${R$(saldoAcum)}</div>
+        </div>
+        <div class="card">`;
+
+      grupo.forEach(l => {
+        const isReceita = l.tipo === 'receita';
+        const icone = l.categorias?.icone || (isReceita ? '💰' : '💸');
+        const cor = isReceita ? '#059669' : '#dc2626';
+        const prefix = isReceita ? '+' : '-';
+        const sub = `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' · ' + l.favorecidos.nome : ''}`;
+        htmlLanc += `
+          <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;">
+            <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+              <div style="font-size:22px;">${icone}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</div>
+                <div style="font-size:12px;color:#94a3b8;">${sub}</div>
+              </div>
+            </div>
+            <div style="font-size:15px;white-space:nowrap;margin-left:8px;font-weight:600;color:${cor};">${prefix} ${R$(l.valor)}</div>
+          </div>`;
+      });
+
+      htmlLanc += `</div></div>`;
+    });
+  }
+
+  el.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Receitas</div>
+          <div style="font-weight:700;font-size:16px;color:#059669;">${R$(receitasMes)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Despesas</div>
+          <div style="font-weight:700;font-size:16px;color:#dc2626;">${R$(despesasMes)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Saldo atual</div>
+          <div style="font-weight:700;font-size:16px;color:${saldoFinal>=0?'#059669':'#dc2626'};">${R$(saldoFinal)}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;border-top:1px solid #f1f5f9;padding-top:10px;font-size:12px;color:#94a3b8;text-align:center;">
+        Saldo anterior ao mês: ${R$(saldoAnteriorMes)}
+      </div>
+    </div>
+    ${htmlLanc}`;
+}
+
+function trocarContaExtrato(id) {
+  extratoContaAtual = id;
+  renderizarExtrato();
+}
+
+// ============================================================
 // CARTÕES
 // ============================================================
 async function carregarCartoes() {
@@ -3835,6 +4137,20 @@ async function renderizarConfig() {
   el.innerHTML = `
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:15px;">🏦 Contas Bancárias</div>
+        <button onclick="abrirModalConta()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Conta</button>
+      </div>
+      ${contas.length ? contas.map(c => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:#f8fafc;border-radius:8px;margin-bottom:6px;">
+          <div>
+            <div style="font-weight:600;">🏦 ${c.nome}</div>
+            <div style="font-size:12px;color:#64748b;">${c.banco} · ${c.tipo === 'corrente' ? 'Conta Corrente' : c.tipo === 'poupanca' ? 'Poupança' : c.tipo === 'investimento' ? 'Investimento' : 'Outro'} · Saldo inicial: ${R$(c.saldo_inicial)}</div>
+          </div>
+          <button onclick="editarConta('${c.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer;">✏️</button>
+        </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma conta cadastrada.</div>'}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div style="font-weight:700;font-size:15px;">💸 Despesas</div>
         <button onclick="abrirModalCategoria('despesa')" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Categoria</button>
       </div>
@@ -4039,84 +4355,58 @@ async function editarCategoria(id) {
 
 async function salvarCategoria() {
   const nome = document.getElementById('cat-nome').value.trim();
-  const tipo = document.getElementById('cat-tipo').value;
+  if (!nome) { toast('Informe o nome da categoria', 'erro'); return; }
   const icone = document.getElementById('cat-icone').value || '📁';
-  const parentId = document.getElementById('cat-parent-group').classList.contains('hidden')
-    ? null
-    : (document.getElementById('cat-parent').value || null);
-  if (!nome) { toast('Informe o nome', 'erro'); return; }
-  if (!document.getElementById('cat-parent-group').classList.contains('hidden') && !parentId) {
-    toast('Selecione a categoria', 'erro'); return;
-  }
-  const uid = (await sb.auth.getUser()).data.user.id;
   const id = document.getElementById('cat-id').value;
+  const parentId = document.getElementById('cat-parent-group').classList.contains('hidden')
+    ? null : (document.getElementById('cat-parent').value || null);
+  const tipo = parentId
+    ? (categorias.find(c => c.id === parentId)?.tipo || 'despesa')
+    : document.getElementById('cat-tipo').value;
+  const uid = (await sb.auth.getUser()).data.user.id;
+  let newId = null;
   if (id) {
-    await sb.from('categorias').update({ nome, tipo, icone, parent_id: parentId }).eq('id', id);
-    toast('Salvo!', 'ok');
+    const { error } = await sb.from('categorias').update({ nome, icone, tipo, parent_id: parentId }).eq('id', id);
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    newId = id;
+    toast('Categoria atualizada!', 'ok');
   } else {
-    const { data: nova } = await sb.from('categorias').insert({ user_id: uid, nome, tipo, icone, parent_id: parentId }).select().single();
-    toast('Criado!', 'ok');
-    await carregarCategorias();
-    // Se foi chamado a partir da importação de extrato
-    if (window._catCallback && nova) {
-      const cb = window._catCallback;
-      window._catCallback = null;
-      fecharModal('modal-categoria');
-      await cb(nova.id, !!parentId, parentId);
-      return;
-    }
-    // Se foi chamado pelo atalho do modal de lançamento, seleciona a categoria nova automaticamente
-    if (window._catModoRapido && nova) {
-      const tipoLanc = getTipoLancamento();
-      popularSelectCategorias('lanc-categoria', tipoLanc);
-      if (!parentId) {
-        // É categoria nova — seleciona no form e abre automaticamente o modal de subcategoria
-        document.getElementById('lanc-categoria').value = nova.id;
-        atualizarSubcategorias();
-        window._catModoRapido = false;
-        fecharModal('modal-categoria');
-        // Pequeno delay para o modal fechar antes de abrir o próximo
-        setTimeout(() => {
-          window._catModoRapido = true;
-          abrirNovaSubcategoria(nova.id, tipoLanc);
-        }, 200);
-      } else {
-        // É subcategoria: seleciona o pai e depois a sub
-        document.getElementById('lanc-categoria').value = parentId;
-        atualizarSubcategorias();
-        setTimeout(() => { document.getElementById('lanc-subcategoria').value = nova.id; }, 50);
-        window._catModoRapido = false;
-        fecharModal('modal-categoria');
-      }
-      return;
-    }
+    const { data, error } = await sb.from('categorias').insert({ user_id: uid, nome, icone, tipo, parent_id: parentId }).select().single();
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    newId = data?.id;
+    toast('Categoria criada!', 'ok');
   }
   await carregarCategorias();
   fecharModal('modal-categoria');
+  // Modo rapido: popula select no lancamento
+  if (window._catModoRapido && newId) {
+    window._catModoRapido = false;
+    const tipoLanc = getTipoLancamento ? getTipoLancamento() : tipo;
+    popularSelectCategorias('lanc-categoria', tipoLanc);
+    document.getElementById('lanc-categoria').value = newId;
+    atualizarSubcategorias();
+    return;
+  }
+  // Callback de importacao
+  if (window._catCallback && newId) {
+    const cb = window._catCallback;
+    window._catCallback = null;
+    await cb(newId);
+    return;
+  }
   if (paginaAtual === 'config') renderizarConfig();
 }
 
 async function excluirCategoria() {
+  if (!confirm('Excluir esta categoria? As subcategorias também serão excluídas.')) return;
   const id = document.getElementById('cat-id').value;
-  const c = categorias.find(x => x.id === id);
-  const subs = categorias.filter(x => x.parent_id === id);
-  const msg = subs.length > 0
-    ? `Excluir "${c?.nome}" e suas ${subs.length} subcategoria(s)?`
-    : `Excluir "${c?.nome}"?`;
-  if (!confirm(msg)) return;
   await sb.from('categorias').delete().eq('id', id);
-  toast('Excluído!', 'ok');
   await carregarCategorias();
+  toast('Categoria excluída', 'ok');
   fecharModal('modal-categoria');
   renderizarConfig();
 }
 
-// Adicionar aba Config na navegação via clique no holerite (workaround elegante)
-// O holerite já está na nav; configurações ficam acessíveis pelo dashboard (ícone de engrenagem)
-// Adicionar botão de config no header
-document.addEventListener('DOMContentLoaded', () => {
-  // Já inicializa via onAuthStateChange
-});
-</script>
+  </script>
 </body>
 </html>
