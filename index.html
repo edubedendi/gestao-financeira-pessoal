@@ -2175,15 +2175,21 @@ function renderizarTransacoesImportadas(transacoes) {
                 <option value="receita" ${t.tipo==='receita'?'selected':''}>Receita</option>
               </select>
               <input type="number" id="tr-valor-${i}" value="${t.valor.toFixed(2)}" style="font-size:12px;padding:4px 8px;" step="0.01" />
-              <select id="tr-cat-${i}" onchange="atualizarSubcatImport(${i})" style="font-size:12px;padding:4px 8px;">
-                <option value="">Sem categoria</option>
-                ${categorias.filter(c => !c.parent_id).map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
-              </select>
+              <div style="display:flex;gap:4px;">
+                <select id="tr-cat-${i}" onchange="atualizarSubcatImport(${i})" style="font-size:12px;padding:4px 8px;flex:1;">
+                  <option value="">Sem categoria</option>
+                  ${categorias.filter(c => !c.parent_id).map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('')}
+                </select>
+                <button type="button" onclick="abrirCatParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Nova categoria">+</button>
+              </div>
             </div>
             <div id="tr-subcat-group-${i}" style="display:none;margin-top:6px;">
-              <select id="tr-subcat-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
-                <option value="">Nenhuma subcategoria</option>
-              </select>
+              <div style="display:flex;gap:4px;">
+                <select id="tr-subcat-${i}" style="font-size:12px;padding:4px 8px;flex:1;">
+                  <option value="">Nenhuma subcategoria</option>
+                </select>
+                <button type="button" onclick="abrirSubcatParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Nova subcategoria">+</button>
+              </div>
             </div>
             <div style="margin-top:6px;">
               <select id="tr-fav-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
@@ -3864,6 +3870,45 @@ function abrirModalSubcategoriaRapido() {
   abrirNovaSubcategoria(catId, tipoLanc);
 }
 
+// Abre modal de nova categoria a partir de um card de importação
+function abrirCatParaImport(i) {
+  window._catCallback = async (novaId, isSubcat, parentId) => {
+    await carregarCategorias();
+    const sel = document.getElementById(`tr-cat-${i}`);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Sem categoria</option>' +
+      categorias.filter(c => !c.parent_id).map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+    if (!isSubcat) {
+      sel.value = novaId;
+      atualizarSubcatImport(i);
+    } else if (parentId) {
+      sel.value = parentId;
+      atualizarSubcatImport(i);
+      setTimeout(() => {
+        const subSel = document.getElementById(`tr-subcat-${i}`);
+        if (subSel) subSel.value = novaId;
+      }, 50);
+    }
+  };
+  abrirModalCategoria('despesa');
+}
+
+// Abre modal de nova subcategoria a partir de um card de importação
+function abrirSubcatParaImport(i) {
+  const catId = document.getElementById(`tr-cat-${i}`)?.value;
+  if (!catId) { toast('Selecione uma categoria primeiro', 'erro'); return; }
+  const cat = categorias.find(c => c.id === catId);
+  window._catCallback = async (novaId, isSubcat, parentId) => {
+    await carregarCategorias();
+    atualizarSubcatImport(i);
+    setTimeout(() => {
+      const subSel = document.getElementById(`tr-subcat-${i}`);
+      if (subSel) subSel.value = novaId;
+    }, 50);
+  };
+  abrirNovaSubcategoria(catId, cat?.tipo || 'despesa');
+}
+
 function abrirModalCategoria(tipoDefault = 'despesa') {
   document.getElementById('cat-id').value = '';
   document.getElementById('modal-cat-titulo').textContent = 'Nova Categoria';
@@ -3965,6 +4010,14 @@ async function salvarCategoria() {
     const { data: nova } = await sb.from('categorias').insert({ user_id: uid, nome, tipo, icone, parent_id: parentId }).select().single();
     toast('Criado!', 'ok');
     await carregarCategorias();
+    // Se foi chamado a partir da importação de extrato
+    if (window._catCallback && nova) {
+      const cb = window._catCallback;
+      window._catCallback = null;
+      fecharModal('modal-categoria');
+      await cb(nova.id, !!parentId, parentId);
+      return;
+    }
     // Se foi chamado pelo atalho do modal de lançamento, seleciona a categoria nova automaticamente
     if (window._catModoRapido && nova) {
       const tipoLanc = getTipoLancamento();
