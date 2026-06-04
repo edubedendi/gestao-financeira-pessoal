@@ -2466,9 +2466,24 @@ async function renderizarOrcamento() {
     html += `<div style="font-size:12px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">📈 Receitas — Metas do Mês</div>`;
 
     gruposRec.forEach(({ pai, catPaiInfo, subs }) => {
+      const parentCatId = pai?.categoria_id || catPaiInfo?.id;
+      const todasSubsRec = categorias.filter(c => c.parent_id === parentCatId);
+      const subsOrcMapRec = {};
+      subs.forEach(s => { subsOrcMapRec[s.categoria_id] = s; });
+      const subsUnificadasRec = [];
+      todasSubsRec.forEach(c => {
+        if (subsOrcMapRec[c.id]) {
+          subsUnificadasRec.push({ ...subsOrcMapRec[c.id], hasBudget: true });
+        } else {
+          const r = receitasPorCat[c.id] || 0;
+          if (r > 0) subsUnificadasRec.push({ categoria_id: c.id, categorias: c, valor_planejado: 0, id: null, hasBudget: false });
+        }
+      });
+      subsUnificadasRec.sort((a, b) => (a.categorias?.nome || '').localeCompare(b.categorias?.nome || '', 'pt-BR'));
+
       const recPai = pai ? (receitasPorCat[pai.categoria_id] || 0) : 0;
       const metaPai = pai ? Number(pai.valor_planejado) : 0;
-      const recSubs = subs.reduce((acc, s) => acc + (receitasPorCat[s.categoria_id] || 0), 0);
+      const recSubs = todasSubsRec.reduce((acc, c) => acc + (receitasPorCat[c.id] || 0), 0);
       const metaSubs = subs.reduce((acc, s) => acc + Number(s.valor_planejado), 0);
       const recTotal = recPai + recSubs;
       const metaTotal = metaPai + metaSubs;
@@ -2495,23 +2510,30 @@ async function renderizarOrcamento() {
           <div class="progress-fill" style="width:${pct}%;background:#10b981;"></div>
         </div>`;
 
-      if (subs.length > 0) {
+      if (subsUnificadasRec.length > 0) {
         html += `<div style="margin-top:12px;border-top:1px solid #f1f5f9;padding-top:10px;display:flex;flex-direction:column;gap:8px;">`;
-        subs.forEach(s => {
+        subsUnificadasRec.forEach(s => {
           const recS = receitasPorCat[s.categoria_id] || 0;
           const pctS = s.valor_planejado > 0 ? Math.min((recS / s.valor_planejado) * 100, 100) : 0;
           const pctSReal = s.valor_planejado > 0 ? (recS / s.valor_planejado) * 100 : 0;
+          const clickS = s.id
+            ? `onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')"`
+            : `onclick="abrirModalOrcamento('${s.categoria_id}','')"`;
           html += `
-            <div style="cursor:pointer;padding:10px 12px;background:#f0fdf4;border-radius:8px;" onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')">
+            <div style="cursor:pointer;padding:10px 12px;background:#f0fdf4;border-radius:8px;" ${clickS}>
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome}</div>
-                <div style="font-size:11px;font-weight:600;color:${pctSReal>=100?'#059669':pctSReal>=60?'#f59e0b':'#dc2626'};">${Math.round(pctSReal)}%</div>
+                <div style="font-size:11px;font-weight:600;color:${s.valor_planejado > 0 ? (pctSReal>=100?'#059669':pctSReal>=60?'#f59e0b':'#dc2626') : '#94a3b8'};">
+                  ${s.valor_planejado > 0 ? Math.round(pctSReal) + '%' : 'sem orçamento'}
+                </div>
               </div>
+              ${s.valor_planejado > 0 ? `
               <div class="progress-bar" style="height:5px;margin-bottom:5px;">
                 <div class="progress-fill" style="width:${pctS}%;background:#10b981;"></div>
-              </div>
+              </div>` : ''}
               <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;">
-                <span>${R$(recS)}</span><span>${R$(s.valor_planejado)}</span>
+                <span style="color:#059669;font-weight:600;">${R$(recS)}</span>
+                <span>${s.valor_planejado > 0 ? R$(s.valor_planejado) : '+ definir orçamento'}</span>
               </div>
             </div>`;
         });
@@ -2545,9 +2567,29 @@ async function renderizarOrcamento() {
 
     let htmlDesp = '';
     gruposDesp.forEach(({ pai, catPaiInfo, subs }) => {
+      const parentCatId = pai?.categoria_id || catPaiInfo?.id;
+
+      // Todas as subcategorias reais desta categoria pai
+      const todasSubs = categorias.filter(c => c.parent_id === parentCatId);
+
+      // Monta lista unificada: subcategorias com orçamento + subcategorias com gasto mas sem orçamento
+      const subsOrcMap = {};
+      subs.forEach(s => { subsOrcMap[s.categoria_id] = s; });
+      const subsUnificadas = [];
+      todasSubs.forEach(c => {
+        if (subsOrcMap[c.id]) {
+          subsUnificadas.push({ ...subsOrcMap[c.id], hasBudget: true });
+        } else {
+          const g = gastosPorCat[c.id] || 0;
+          if (g > 0) subsUnificadas.push({ categoria_id: c.id, categorias: c, valor_planejado: 0, id: null, hasBudget: false });
+        }
+      });
+      subsUnificadas.sort((a, b) => (a.categorias?.nome || '').localeCompare(b.categorias?.nome || '', 'pt-BR'));
+
       const gastoPai = pai ? (gastosPorCat[pai.categoria_id] || 0) : 0;
       const planejadoPai = pai ? Number(pai.valor_planejado) : 0;
-      const gastoSubs = subs.reduce((acc, s) => acc + (gastosPorCat[s.categoria_id] || 0), 0);
+      // Soma gasto de TODAS as subcategorias (com ou sem orçamento)
+      const gastoSubs = todasSubs.reduce((acc, c) => acc + (gastosPorCat[c.id] || 0), 0);
       const planejadoSubs = subs.reduce((acc, s) => acc + Number(s.valor_planejado), 0);
       const gastoTotal = gastoPai + gastoSubs;
       const planejadoTotal = planejadoPai + planejadoSubs;
@@ -2559,7 +2601,6 @@ async function renderizarOrcamento() {
       const cor = progressCor(pctReal);
       const catInfo = pai ? pai.categorias : catPaiInfo;
       const nomeExibido = `${catInfo?.icone || '📁'} ${catInfo?.nome}`;
-      // badge: só vermelho se REALMENTE ultrapassou (> 100%), 100% exato é verde
       const badgeClass = pctReal > 100 ? 'badge-vermelho' : pctReal >= 80 ? 'badge-amarelo' : 'badge-verde';
 
       htmlDesp += `<div class="card" style="padding:16px;margin-bottom:12px;">`;
@@ -2574,31 +2615,37 @@ async function renderizarOrcamento() {
         <div class="progress-bar" style="margin-bottom:8px;">
           <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:${subs.length > 0 ? '12px' : '0'};">
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:${subsUnificadas.length > 0 ? '12px' : '0'};">
           <span>Gasto: <strong style="color:${cor}">${R$(gastoTotal)}</strong></span>
           <span>Planejado: <strong>${R$(planejadoTotal)}</strong></span>
         </div>
       </div>`;
 
-      if (subs.length > 0) {
+      if (subsUnificadas.length > 0) {
         htmlDesp += `<div style="border-top:1px solid #f1f5f9;padding-top:10px;display:flex;flex-direction:column;gap:8px;">`;
-        subs.forEach(s => {
+        subsUnificadas.forEach(s => {
           const gastoS = gastosPorCat[s.categoria_id] || 0;
           const pctS = s.valor_planejado > 0 ? Math.min((gastoS / s.valor_planejado) * 100, 100) : 0;
           const pctSReal = s.valor_planejado > 0 ? (gastoS / s.valor_planejado) * 100 : 0;
           const corS = progressCor(pctSReal);
-          const badgeS = pctSReal > 100 ? 'badge-vermelho' : pctSReal >= 80 ? 'badge-amarelo' : 'badge-verde';
+          const clickSub = s.id
+            ? `onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')"`
+            : `onclick="abrirModalOrcamento('${s.categoria_id}','')"`;
           htmlDesp += `
-            <div style="cursor:pointer;padding:10px 12px;background:#f8fafc;border-radius:8px;" onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')">
+            <div style="cursor:pointer;padding:10px 12px;background:#f8fafc;border-radius:8px;" ${clickSub}>
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome}</div>
-                <div style="font-size:11px;font-weight:600;color:${corS};">${Math.round(pctSReal)}%</div>
+                <div style="font-size:11px;font-weight:600;color:${s.valor_planejado > 0 ? corS : '#94a3b8'};">
+                  ${s.valor_planejado > 0 ? Math.round(pctSReal) + '%' : 'sem orçamento'}
+                </div>
               </div>
+              ${s.valor_planejado > 0 ? `
               <div class="progress-bar" style="height:5px;margin-bottom:5px;">
                 <div class="progress-fill" style="width:${pctS}%;background:${corS};"></div>
-              </div>
+              </div>` : ''}
               <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;">
-                <span>${R$(gastoS)}</span><span>${R$(s.valor_planejado)}</span>
+                <span style="color:${gastoS > 0 ? corS : '#94a3b8'};font-weight:600;">${R$(gastoS)}</span>
+                <span>${s.valor_planejado > 0 ? R$(s.valor_planejado) : '+ definir orçamento'}</span>
               </div>
             </div>`;
         });
@@ -2683,8 +2730,17 @@ function atualizarSubcategoriasOrcamento() {
 function abrirModalOrcamento(catId = '', valor = '') {
   popularSelectCategoriasOrcamento();
   if (catId) {
-    document.getElementById('orc-categoria').value = catId;
-    atualizarSubcategoriasOrcamento();
+    // Verifica se catId é uma subcategoria
+    const cat = categorias.find(c => c.id === catId);
+    if (cat?.parent_id) {
+      // É subcategoria: seleciona a categoria pai e depois a sub
+      document.getElementById('orc-categoria').value = cat.parent_id;
+      atualizarSubcategoriasOrcamento();
+      document.getElementById('orc-subcategoria').value = catId;
+    } else {
+      document.getElementById('orc-categoria').value = catId;
+      atualizarSubcategoriasOrcamento();
+    }
   }
   document.getElementById('orc-valor').value = valor;
   abrirModal('modal-orcamento');
