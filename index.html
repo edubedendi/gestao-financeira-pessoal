@@ -2016,15 +2016,84 @@ function atualizarSubcatImport(i) {
   subGroup.style.display = '';
 }
 
+// Parser para extrato Bradesco (cada campo em linha separada)
+function parsarExtratoBradesco(texto) {
+  const isDataSozinha = (l) => /^\d{2}\/\d{2}\/\d{2,4}$/.test(l);
+  const isDocNum     = (l) => /^\d{5,8}$/.test(l);
+  const isValor      = (l) => /^-?\s*\d{1,3}(?:\.\d{3})*,\d{2}$/.test(l.replace(/\s/g,''));
+  const parseValor   = (l) => parseFloat(l.replace(/\s/g,'').replace(/\./g,'').replace(',','.'));
+  const parseData    = (d) => {
+    const p = d.split('/');
+    const ano = p[2]?.length === 2 ? '20'+p[2] : (p[2] || String(anoAtual));
+    return `${ano}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  };
+
+  // Detecta se parece com esse formato (tem ao menos uma linha só com data)
+  const linhas = texto.split('\n').map(l => l.trim()).filter(l => l);
+  if (!linhas.some(l => isDataSozinha(l))) return null;
+
+  // Corta rodapé
+  const footerIdx = linhas.findIndex(l =>
+    l.startsWith('Os dados acima') || l.startsWith('Últimos Lançamentos') ||
+    l.startsWith('Saldos') || l === 'Topo'
+  );
+  const dados = footerIdx > -1 ? linhas.slice(0, footerIdx) : linhas;
+
+  const transacoes = [];
+  let dataAtual = new Date().toISOString().split('T')[0];
+  let descLinhas = [];
+  let valores = [];
+
+  const fecharTransacao = () => {
+    if (descLinhas.length > 0 && valores.length > 0) {
+      // Prefere o último valor negativo (ignora saldos positivos no final do grupo)
+      const negativos = valores.filter(v => v < 0);
+      const valor = negativos.length > 0 ? negativos[negativos.length - 1] : valores[valores.length - 1];
+      const absValor = Math.abs(valor);
+      if (absValor > 0) {
+        transacoes.push({
+          data: dataAtual,
+          descricao: descLinhas.join(' — '),
+          valor: absValor,
+          tipo: valor < 0 ? 'despesa' : 'receita',
+          selecionado: true
+        });
+      }
+    }
+    descLinhas = [];
+    valores = [];
+  };
+
+  for (const linha of dados) {
+    if (isDataSozinha(linha)) { fecharTransacao(); dataAtual = parseData(linha); continue; }
+    if (isDocNum(linha)) continue;
+    if (isValor(linha)) {
+      valores.push(parseValor(linha));
+    } else {
+      if (valores.length > 0) fecharTransacao();
+      descLinhas.push(linha);
+    }
+  }
+  fecharTransacao();
+  return transacoes;
+}
+
 async function processarExtrato() {
   const texto = document.getElementById('extrato-texto').value.trim();
   if (!texto) { toast('Cole o texto do extrato', 'erro'); return; }
+
+  // Tenta parser Bradesco (multi-linha) primeiro
+  const transacoesBradesco = parsarExtratoBradesco(texto);
+  if (transacoesBradesco && transacoesBradesco.length > 0) {
+    renderizarTransacoesImportadas(transacoesBradesco);
+    return;
+  }
 
   const linhas = texto.split('\n').filter(l => l.trim());
   const transacoes = [];
 
   linhas.forEach(linha => {
-    // Padrões comuns de extrato
+    // Padrões comuns de extrato (linha única)
     const padroes = [
       /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+([+-]?\d+[\.,]\d{2})/,
       /(\d{2}-\d{2}(?:-\d{2,4})?)\s+(.+?)\s+([+-]?\d+[\.,]\d{2})/,
@@ -2075,13 +2144,24 @@ async function processarExtrato() {
     toast('Não foi possível identificar transações. Verifique o formato.', 'erro'); return;
   }
 
+  renderizarTransacoesImportadas(transacoes);
+}
+
+function detectarForma(descricao) {
+  const d = descricao.toLowerCase();
+  if (d.includes('pix') || d.includes('transf')) return 'pix';
+  if (d.includes('visa') || d.includes('master') || d.includes('débito') || d.includes('debito') || d.includes('debit')) return 'debito';
+  if (d.includes('cartão') || d.includes('cartao') || d.includes('crédito') || d.includes('credito')) return 'cartao';
+  return 'dinheiro';
+}
+
+function renderizarTransacoesImportadas(transacoes) {
   const el = document.getElementById('extrato-resultado');
   el.classList.remove('hidden');
 
   let html = `<div style="font-size:14px;font-weight:600;margin-bottom:12px;">${transacoes.length} transações identificadas:</div>`;
   transacoes.forEach((t, i) => {
-    const isPix = t.descricao?.toLowerCase().includes('pix');
-    const formaAuto = isPix ? 'pix' : 'dinheiro';
+    const formaAuto = detectarForma(t.descricao || '');
     html += `
       <div class="card" style="padding:12px;margin-bottom:8px;">
         <div style="display:flex;align-items:start;gap:10px;">
@@ -2114,9 +2194,9 @@ async function processarExtrato() {
             <div style="margin-top:6px;">
               <select id="tr-forma-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
                 <option value="dinheiro" ${formaAuto==='dinheiro'?'selected':''}>💵 Dinheiro</option>
-                <option value="debito">💳 Débito</option>
+                <option value="debito" ${formaAuto==='debito'?'selected':''}>💳 Débito</option>
                 <option value="pix" ${formaAuto==='pix'?'selected':''}>📱 PIX</option>
-                <option value="cartao">💳 Cartão</option>
+                <option value="cartao" ${formaAuto==='cartao'?'selected':''}>💳 Cartão</option>
               </select>
             </div>
             <div style="margin-top:6px;">
