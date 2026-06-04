@@ -3197,30 +3197,11 @@ async function encontrarOuCriarCatHol(catNome, tipo, icone) {
   return data?.id;
 }
 
-// Retorna lançamentos de holerite do período: novos (__hol__) + antigos (categorias com nomes do holerite)
+// Retorna lançamentos de holerite do período — apenas os marcados com observacao='__hol__'
 async function buscarLancamentosHolerite(dataInicio, dataFim) {
-  const holCatNomes = HOL_FIELDS.map(f => f.catNome);
-  const holCatIds = categorias.filter(c => holCatNomes.includes(c.nome)).map(c => c.id);
-
-  const queries = [
-    sb.from('lancamentos').select('*, categorias(nome,icone)')
-      .eq('observacao', '__hol__').gte('data', dataInicio).lte('data', dataFim),
-  ];
-  if (holCatIds.length > 0) {
-    queries.push(
-      sb.from('lancamentos').select('*, categorias(nome,icone)')
-        .in('categoria_id', holCatIds)
-        .is('observacao', null)   // antigos não têm observacao
-        .gte('data', dataInicio).lte('data', dataFim)
-    );
-  }
-  const results = await Promise.all(queries);
-  const novos = results[0].data || [];
-  const antigos = results[1]?.data || [];
-  // deduplicar por id
-  const vistos = new Set(novos.map(l => l.id));
-  const todos = [...novos, ...antigos.filter(l => !vistos.has(l.id))];
-  return todos;
+  const { data } = await sb.from('lancamentos').select('*, categorias(nome,icone)')
+    .eq('observacao', '__hol__').gte('data', dataInicio).lte('data', dataFim);
+  return data || [];
 }
 
 async function renderizarHolerite() {
