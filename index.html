@@ -3487,10 +3487,14 @@ async function excluirConta() {
 // ============================================================
 let extratoContaAtual = null;
 
-async function renderizarExtrato() {
+async function renderizarExtrato(opts = {}) {
   const el = document.getElementById('extrato-conta-content');
   const wrap = document.getElementById('extrato-sel-conta-wrap');
   if (!el) return;
+
+  // Em atualizações leves (ex.: marcar conferido) guardamos a posição do scroll
+  // para o usuário não ser jogado de volta ao topo da página.
+  const scrollY = opts.preservarScroll ? window.scrollY : null;
 
   await carregarContas();
 
@@ -3528,7 +3532,7 @@ async function renderizarExtrato() {
   const conta = contas.find(c => c.id === extratoContaAtual);
   if (!conta) return;
 
-  el.innerHTML = '<div class="spinner"></div>';
+  if (!opts.preservarScroll) el.innerHTML = '<div class="spinner"></div>';
 
   const mesStr = String(mesAtual).padStart(2, '0');
   const inicioMes = `${anoAtual}-${mesStr}-01`;
@@ -3661,6 +3665,9 @@ async function renderizarExtrato() {
         : `<div style="font-size:12px;color:#059669;margin-top:6px;">Tudo conferido! ✓</div>`}
     </div>` : ''}
     ${htmlLanc}`;
+
+  // Volta para onde o usuário estava antes da atualização
+  if (opts.preservarScroll && scrollY != null) window.scrollTo(0, scrollY);
 }
 
 function trocarContaExtrato(id) {
@@ -3674,7 +3681,7 @@ function trocarContaExtrato(id) {
 async function toggleConciliado(id, marcar) {
   const { error } = await sb.from('lancamentos').update({ conciliado: marcar }).eq('id', id);
   if (error) { toast('Erro ao marcar', 'erro'); return; }
-  renderizarExtrato();
+  renderizarExtrato({ preservarScroll: true });
 }
 
 async function conciliarDia(idsStr, marcar) {
@@ -3683,7 +3690,7 @@ async function conciliarDia(idsStr, marcar) {
   const { error } = await sb.from('lancamentos').update({ conciliado: marcar }).in('id', ids);
   if (error) { toast('Erro ao marcar o dia', 'erro'); return; }
   toast(marcar ? 'Dia conferido!' : 'Dia desmarcado', 'ok');
-  renderizarExtrato();
+  renderizarExtrato({ preservarScroll: true });
 }
 
 // ============================================================
