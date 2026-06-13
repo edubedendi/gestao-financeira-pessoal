@@ -3556,6 +3556,12 @@ async function renderizarExtrato() {
   const despesasMes = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
   const saldoFinal = saldoAnteriorMes + receitasMes - despesasMes;
 
+  // Conciliação: quantos lançamentos já foram conferidos contra o extrato
+  const qtdTotal = lancamentos.length;
+  const qtdConf = lancamentos.filter(l => l.conciliado).length;
+  const pctConf = qtdTotal > 0 ? Math.round(qtdConf / qtdTotal * 100) : 0;
+  const valorFaltante = lancamentos.filter(l => !l.conciliado).reduce((s, l) => s + Number(l.valor), 0);
+
   const grupos = {};
   lancamentos.forEach(l => {
     if (!grupos[l.data]) grupos[l.data] = [];
@@ -3580,9 +3586,16 @@ async function renderizarExtrato() {
       const dataBR = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).toUpperCase();
       const corSaldoDia = saldoAcum >= 0 ? '#059669' : '#dc2626';
 
+      const todosConferidos = grupo.every(l => l.conciliado);
+      const idsDia = grupo.map(l => l.id).join(',');
       htmlLanc += `<div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <div style="font-size:11px;color:#94a3b8;font-weight:600;">${dataBR}</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button onclick="conciliarDia('${idsDia}', ${todosConferidos ? 'false' : 'true'})" title="${todosConferidos ? 'Desmarcar o dia inteiro' : 'Conferir o dia inteiro'}" style="border:none;background:none;cursor:pointer;padding:0;display:flex;align-items:center;">
+              <span style="width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;${todosConferidos ? 'background:#059669;color:white;' : 'border:1.5px solid #cbd5e1;color:transparent;'}">✓</span>
+            </button>
+            <div style="font-size:11px;color:#94a3b8;font-weight:600;">${dataBR}</div>
+          </div>
           <div style="font-size:12px;font-weight:700;color:${corSaldoDia};">Saldo: ${R$(saldoAcum)}</div>
         </div>
         <div class="card">`;
@@ -3592,10 +3605,14 @@ async function renderizarExtrato() {
         const icone = l.categorias?.icone || (isReceita ? '💰' : '💸');
         const cor = isReceita ? '#059669' : '#dc2626';
         const prefix = isReceita ? '+' : '-';
-        const sub = `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' · ' + l.favorecidos.nome : ''}`;
+        const conf = !!l.conciliado;
+        const sub = `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' · ' + l.favorecidos.nome : ''}${conf ? ' · conferido' : ''}`;
         htmlLanc += `
-          <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;">
+          <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;${conf ? 'background:#ecfdf5;' : ''}">
             <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+              <button onclick="event.stopPropagation(); toggleConciliado('${l.id}', ${conf ? 'false' : 'true'})" title="${conf ? 'Desmarcar' : 'Marcar como conferido'}" style="border:none;background:none;cursor:pointer;padding:0;flex-shrink:0;">
+                <span style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;${conf ? 'background:#059669;color:white;' : 'border:1.5px solid #cbd5e1;color:transparent;'}">✓</span>
+              </button>
               <div style="font-size:22px;">${icone}</div>
               <div style="flex:1;min-width:0;">
                 <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</div>
@@ -3630,11 +3647,42 @@ async function renderizarExtrato() {
         Saldo anterior ao mês: ${R$(saldoAnteriorMes)}
       </div>
     </div>
+    ${qtdTotal > 0 ? `
+    <div class="card" style="padding:14px 16px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:13px;color:#64748b;">Conferência de ${meses[mesAtual-1]}</span>
+        <span style="font-size:13px;font-weight:700;color:${qtdConf===qtdTotal?'#059669':'#64748b'};">${qtdConf} de ${qtdTotal} conferidos</span>
+      </div>
+      <div style="height:8px;background:#f1f5f9;border-radius:999px;overflow:hidden;">
+        <div style="height:100%;width:${pctConf}%;background:#059669;border-radius:999px;transition:width .2s;"></div>
+      </div>
+      ${valorFaltante > 0
+        ? `<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Faltam ${R$(valorFaltante)} a conferir</div>`
+        : `<div style="font-size:12px;color:#059669;margin-top:6px;">Tudo conferido! ✓</div>`}
+    </div>` : ''}
     ${htmlLanc}`;
 }
 
 function trocarContaExtrato(id) {
   extratoContaAtual = id;
+  renderizarExtrato();
+}
+
+// ============================================================
+// CONCILIAÇÃO DO EXTRATO (marcar lançamento como conferido)
+// ============================================================
+async function toggleConciliado(id, marcar) {
+  const { error } = await sb.from('lancamentos').update({ conciliado: marcar }).eq('id', id);
+  if (error) { toast('Erro ao marcar', 'erro'); return; }
+  renderizarExtrato();
+}
+
+async function conciliarDia(idsStr, marcar) {
+  const ids = (idsStr || '').split(',').filter(Boolean);
+  if (!ids.length) return;
+  const { error } = await sb.from('lancamentos').update({ conciliado: marcar }).in('id', ids);
+  if (error) { toast('Erro ao marcar o dia', 'erro'); return; }
+  toast(marcar ? 'Dia conferido!' : 'Dia desmarcado', 'ok');
   renderizarExtrato();
 }
 
