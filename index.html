@@ -258,9 +258,14 @@
   </div>
 
   <div id="page-extrato" class="page">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <h2 style="font-size:18px;font-weight:700;margin:0;">Extrato</h2>
-      <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalConta()">+ Conta</button>
+    <div style="position:sticky;top:0;z-index:30;background:#f1f5f9;padding-top:4px;padding-bottom:10px;margin-bottom:4px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <h2 style="font-size:18px;font-weight:700;margin:0;">Extrato</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary" style="width:auto;padding:8px 12px;" onclick="abrirModalConta()">+ Conta</button>
+          <button class="btn-primary" style="width:auto;padding:8px 14px;" onclick="abrirModalLancamentoExtrato()">+ Lançamento</button>
+        </div>
+      </div>
     </div>
     <div style="margin-bottom:14px;" id="extrato-sel-conta-wrap"></div>
     <div id="extrato-conta-content"><div class="spinner"></div></div>
@@ -1908,6 +1913,15 @@ function abrirModalLancamento() {
   abrirModal('modal-lancamento');
 }
 
+// Abre o modal de novo lançamento a partir do Extrato, já com a conta atual selecionada
+function abrirModalLancamentoExtrato() {
+  abrirModalLancamento();
+  if (extratoContaAtual) {
+    const sel = document.getElementById('lanc-conta');
+    if (sel) sel.value = extratoContaAtual;
+  }
+}
+
 async function editarLancamento(id) {
   const { data: l } = await sb.from('lancamentos').select('*').eq('id', id).single();
   if (!l) return;
@@ -2188,6 +2202,10 @@ async function salvarLancamento() {
   fecharModal('modal-lancamento');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
+  if (paginaAtual === 'orcamento') renderizarOrcamento();
+  if (paginaAtual === 'cartoes') renderizarCartoes();
+  if (paginaAtual === 'relatorio') renderizarRelatorio();
 }
 
 async function excluirLancamento() {
@@ -2198,6 +2216,10 @@ async function excluirLancamento() {
   fecharModal('modal-lancamento');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
+  if (paginaAtual === 'orcamento') renderizarOrcamento();
+  if (paginaAtual === 'cartoes') renderizarCartoes();
+  if (paginaAtual === 'relatorio') renderizarRelatorio();
 }
 
 // ============================================================
