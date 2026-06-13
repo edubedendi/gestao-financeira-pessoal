@@ -286,6 +286,7 @@
       <button class="tab-btn active" style="flex:1;" id="rel-tab-resumo"    onclick="relatorioTrocarAba('resumo')">Resumo</button>
       <button class="tab-btn"        style="flex:1;" id="rel-tab-despesas"  onclick="relatorioTrocarAba('despesa')">Despesas</button>
       <button class="tab-btn"        style="flex:1;" id="rel-tab-receitas"  onclick="relatorioTrocarAba('receita')">Receitas</button>
+      <button class="tab-btn"        style="flex:1;" id="rel-tab-grupos"    onclick="relatorioTrocarAba('grupos')">Grupos</button>
     </div>
 
     <!-- ABA RESUMO -->
@@ -305,6 +306,12 @@
         </div>
       </div>
       <div class="card" style="padding:16px;" id="rel-progresso"></div>
+    </div>
+
+    <!-- ABA GRUPOS -->
+    <div id="rel-aba-grupos" style="display:none;">
+      <p style="font-size:12px;color:#94a3b8;margin:0 0 12px;">Total gasto por grupo (todas as despesas, independente do mês). Toque em um grupo para ver o detalhe.</p>
+      <div id="rel-grupos-lista"></div>
     </div>
   </div>
 
@@ -373,6 +380,17 @@
         <select id="lanc-conta">
           <option value="">Sem conta vinculada</option>
         </select>
+      </div>
+
+      <!-- Grupo -->
+      <div>
+        <label>Grupo</label>
+        <div style="display:flex;gap:8px;">
+          <select id="lanc-grupo" style="flex:1;">
+            <option value="">Sem grupo</option>
+          </select>
+          <button type="button" onclick="abrirModalGrupoRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;white-space:nowrap;" title="Criar novo grupo">+</button>
+        </div>
       </div>
 
       <!-- Valor e Data lado a lado -->
@@ -507,6 +525,30 @@
     </div>
     <div style="margin-top:12px;" id="fav-btn-excluir" class="hidden">
       <button class="btn-danger" style="width:100%;" onclick="excluirFavorecido()">🗑 Excluir favorecido</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Grupo -->
+<div id="modal-grupo" class="modal-overlay hidden" style="z-index:60;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="modal-grupo-titulo">Novo Grupo</h3>
+      <button onclick="fecharModal('modal-grupo')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="grupo-id" />
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Nome do grupo</label>
+        <input type="text" id="grupo-nome" placeholder="Ex: Férias Serra Negra Julho, Reforma da casa..." />
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-grupo')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarGrupo()">Salvar</button>
+    </div>
+    <div style="margin-top:12px;" id="grupo-btn-excluir" class="hidden">
+      <button class="btn-danger" style="width:100%;" onclick="excluirGrupo()">🗑 Excluir grupo</button>
     </div>
   </div>
 </div>
@@ -965,6 +1007,7 @@ let categorias = [];
 let cartoes = [];
 let contas = [];
 let favorecidos = [];
+let grupos = [];
 let recorrencias = [];
 
 let lancamentoEditandoId = null;
@@ -1083,6 +1126,7 @@ async function inicializar(user) {
     await comTimeout(carregarCartoes(), 30000);
     await comTimeout(carregarContas(), 30000);
     await comTimeout(carregarFavorecidos(), 30000);
+    await comTimeout(carregarGrupos(), 30000);
     await comTimeout(carregarRecorrencias(), 30000);
     await processarRecorrencias();
   } catch(e) {
@@ -1259,6 +1303,88 @@ async function excluirFavorecido() {
   toast('Favorecido excluído', 'ok');
   fecharModal('modal-favorecido');
   if (paginaAtual === 'config') renderizarConfig();
+}
+
+// ============================================================
+// GRUPOS (ex.: "Férias Serra Negra Julho")
+// ============================================================
+async function carregarGrupos() {
+  const { data } = await sb.from('grupos').select('*').order('created_at', { ascending: false });
+  grupos = data || [];
+}
+
+function popularSelectGrupos(selectId, valorAtual = '') {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Sem grupo</option>';
+  grupos.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g.id;
+    opt.textContent = `${g.icone || '🎯'} ${g.nome}`;
+    if (g.id === valorAtual) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function abrirModalGrupo(id = null) {
+  document.getElementById('grupo-id').value = id || '';
+  document.getElementById('modal-grupo-titulo').textContent = id ? 'Editar Grupo' : 'Novo Grupo';
+  if (id) {
+    const g = grupos.find(x => x.id === id);
+    document.getElementById('grupo-nome').value = g?.nome || '';
+    document.getElementById('grupo-btn-excluir').classList.remove('hidden');
+  } else {
+    document.getElementById('grupo-nome').value = '';
+    document.getElementById('grupo-btn-excluir').classList.add('hidden');
+  }
+  abrirModal('modal-grupo');
+}
+
+function abrirModalGrupoRapido() {
+  // Abre o modal de grupo a partir do modal de lançamento.
+  // Ao salvar, volta e seleciona o grupo recém-criado automaticamente.
+  abrirModalGrupo(null);
+  window._grupoModoRapido = true;
+}
+
+async function salvarGrupo() {
+  const nome = document.getElementById('grupo-nome').value.trim();
+  if (!nome) { toast('Informe o nome do grupo', 'erro'); return; }
+  const id = document.getElementById('grupo-id').value;
+  const uid = (await sb.auth.getUser()).data.user.id;
+
+  if (id) {
+    const { error } = await sb.from('grupos').update({ nome }).eq('id', id);
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    toast('Grupo atualizado!', 'ok');
+  } else {
+    const { data, error } = await sb.from('grupos').insert({ user_id: uid, nome }).select().single();
+    if (error) { toast('Erro ao salvar', 'erro'); return; }
+    await carregarGrupos();
+    if (window._grupoModoRapido && data) {
+      // Seleciona automaticamente no modal de lançamento
+      popularSelectGrupos('lanc-grupo');
+      document.getElementById('lanc-grupo').value = data.id;
+      window._grupoModoRapido = false;
+    }
+    toast('Grupo criado!', 'ok');
+  }
+
+  await carregarGrupos();
+  fecharModal('modal-grupo');
+  if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'relatorio' && relAba === 'grupos') _renderizarRelatorioGrupos();
+}
+
+async function excluirGrupo() {
+  if (!confirm('Excluir este grupo? Os lançamentos não serão apagados, apenas ficarão sem grupo.')) return;
+  const id = document.getElementById('grupo-id').value;
+  await sb.from('grupos').delete().eq('id', id);
+  await carregarGrupos();
+  toast('Grupo excluído', 'ok');
+  fecharModal('modal-grupo');
+  if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'relatorio' && relAba === 'grupos') _renderizarRelatorioGrupos();
 }
 
 // ============================================================
@@ -1778,6 +1904,7 @@ function abrirModalLancamento() {
   popularSelectCartoes();
   popularSelectFavorecidos('lanc-favorecido');
   popularSelectContas('lanc-conta');
+  popularSelectGrupos('lanc-grupo');
   abrirModal('modal-lancamento');
 }
 
@@ -1811,6 +1938,7 @@ async function editarLancamento(id) {
   popularSelectCartoes();
   popularSelectFavorecidos('lanc-favorecido', l.favorecido_id || '');
   popularSelectContas('lanc-conta', l.conta_id || '');
+  popularSelectGrupos('lanc-grupo', l.grupo_id || '');
   // Restaura forma de pagamento
   const forma = l.forma_pagamento || (l.cartao_id ? 'cartao' : 'dinheiro');
   setFormaPgto(forma);
@@ -1975,6 +2103,7 @@ async function salvarLancamento() {
   const cartaoId = forma === 'cartao' ? (document.getElementById('lanc-cartao').value || null) : null;
   const favId = document.getElementById('lanc-favorecido').value || null;
   const contaId = document.getElementById('lanc-conta')?.value || null;
+  const grupoId = document.getElementById('lanc-grupo')?.value || null;
   const obs = document.getElementById('lanc-obs').value.trim() || null;
   const parcelas = parseInt(document.getElementById('lanc-parcelas').value) || 1;
   // Descrição vem do favorecido selecionado, ou da categoria, ou genérico
@@ -1989,7 +2118,7 @@ async function salvarLancamento() {
   const ehRecorrente = document.getElementById('lanc-recorrente').checked;
 
   if (id) {
-    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, observacao: obs }).eq('id', id);
+    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs }).eq('id', id);
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Lançamento atualizado!', 'ok');
   } else if (ehRecorrente) {
@@ -2005,7 +2134,7 @@ async function salvarLancamento() {
     await sb.from('lancamentos').insert({
       user_id: uid, descricao: desc, valor, data, tipo,
       categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId,
-      conta_id: contaId, forma_pagamento: forma, observacao: obs, recorrencia_id: rec.id
+      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, recorrencia_id: rec.id
     });
     await carregarRecorrencias();
     fecharModal('modal-lancamento');
@@ -2018,7 +2147,7 @@ async function salvarLancamento() {
     const mesInicio = document.getElementById('lanc-1a-parcela').value;
     if (!mesInicio) { toast('Informe o mês da 1ª parcela', 'erro'); return; }
     const [anoP, mesP] = mesInicio.split('-').map(Number);
-    const grupoId = crypto.randomUUID();
+    const parcelaGrupoId = crypto.randomUUID();
     // Arredonda cada parcela para 2 casas decimais; a última absorve o centavo restante
     const tipoValor = getTipoValorParcela();
     const valorParcelaBase = tipoValor === 'parcela'
@@ -2041,8 +2170,8 @@ async function salvarLancamento() {
         descricao: `${desc} (${i+1}/${parcelas})`,
         valor: valorParcela,
         data: dataParc,
-        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, observacao: obs,
-        parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: grupoId
+        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs,
+        parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: parcelaGrupoId
       });
     }
     const { error } = await sb.from('lancamentos').insert(inserts);
@@ -2051,7 +2180,7 @@ async function salvarLancamento() {
   } else {
     // Simples
     const uid = (await sb.auth.getUser()).data.user.id;
-    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, observacao: obs });
+    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs });
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Lançamento salvo!', 'ok');
   }
@@ -2800,11 +2929,15 @@ function relatorioTrocarAba(aba) {
   document.getElementById('rel-tab-resumo')  .classList.toggle('active', aba === 'resumo');
   document.getElementById('rel-tab-despesas').classList.toggle('active', aba === 'despesa');
   document.getElementById('rel-tab-receitas').classList.toggle('active', aba === 'receita');
+  document.getElementById('rel-tab-grupos')  .classList.toggle('active', aba === 'grupos');
   const isResumo = aba === 'resumo';
+  const isGrupos = aba === 'grupos';
   document.getElementById('rel-aba-resumo') .style.display = isResumo ? '' : 'none';
-  document.getElementById('rel-aba-detalhe').style.display = isResumo ? 'none' : '';
-  if (isResumo) _renderizarRelatorioResumo();
-  else          _renderizarRelatorioConteudo();
+  document.getElementById('rel-aba-detalhe').style.display = (isResumo || isGrupos) ? 'none' : '';
+  document.getElementById('rel-aba-grupos') .style.display = isGrupos ? '' : 'none';
+  if (isResumo)      _renderizarRelatorioResumo();
+  else if (isGrupos) _renderizarRelatorioGrupos();
+  else               _renderizarRelatorioConteudo();
 }
 
 async function renderizarRelatorio() {
@@ -2842,13 +2975,130 @@ async function renderizarRelatorio() {
   window._relOrcPorCat  = orcPorCat;
   window._relRealPorCat = realPorCat;
 
-  if (relAba === 'resumo') _renderizarRelatorioResumo();
-  else                     _renderizarRelatorioConteudo();
+  document.getElementById('rel-aba-resumo') .style.display = relAba === 'resumo' ? '' : 'none';
+  document.getElementById('rel-aba-detalhe').style.display = (relAba === 'despesa' || relAba === 'receita') ? '' : 'none';
+  document.getElementById('rel-aba-grupos') .style.display = relAba === 'grupos' ? '' : 'none';
+  if (relAba === 'resumo')      _renderizarRelatorioResumo();
+  else if (relAba === 'grupos') _renderizarRelatorioGrupos();
+  else                          _renderizarRelatorioConteudo();
 }
 
 function relatorioSelecionarMes(m) {
   relMes = m;
   renderizarRelatorio();
+}
+
+// ============================================================
+// RELATÓRIO POR GRUPO (todas as despesas, independente do mês)
+// ============================================================
+async function _renderizarRelatorioGrupos() {
+  const cont = document.getElementById('rel-grupos-lista');
+  if (!cont) return;
+  cont.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Carregando...</div>';
+
+  await carregarGrupos();
+  const { data: lancData } = await sb.from('lancamentos')
+    .select('valor, categoria_id, grupo_id, descricao, data')
+    .eq('tipo', 'despesa')
+    .not('grupo_id', 'is', null);
+
+  const lancs = lancData || [];
+  if (!grupos.length) {
+    cont.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum grupo criado ainda. Crie um grupo ao lançar uma despesa (campo "Grupo") ou em Configurações.</div>';
+    return;
+  }
+
+  // Agrega por grupo
+  const porGrupo = {};
+  grupos.forEach(g => { porGrupo[g.id] = { grupo: g, total: 0, qtd: 0, porCat: {}, itens: [] }; });
+  lancs.forEach(l => {
+    const ag = porGrupo[l.grupo_id];
+    if (!ag) return; // grupo pode ter sido excluído
+    const v = Number(l.valor);
+    ag.total += v;
+    ag.qtd += 1;
+    ag.porCat[l.categoria_id || '_'] = (ag.porCat[l.categoria_id || '_'] || 0) + v;
+    ag.itens.push(l);
+  });
+
+  // Guarda no estado para o expand/collapse
+  window._relGruposAgg = porGrupo;
+
+  // Ordena por total gasto (desc)
+  const ordenados = Object.values(porGrupo).sort((a, b) => b.total - a.total);
+  const totalGeral = ordenados.reduce((s, g) => s + g.total, 0);
+
+  let html = `
+    <div class="card" style="padding:14px;margin-bottom:12px;">
+      <div style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Total em todos os grupos</div>
+      <div style="font-size:20px;font-weight:700;color:#1e293b;">${R$(totalGeral)}</div>
+    </div>`;
+
+  ordenados.forEach(ag => {
+    const g = ag.grupo;
+    html += `
+      <div class="card" style="padding:0;margin-bottom:10px;overflow:hidden;">
+        <div onclick="toggleGrupoDetalhe('${g.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;">
+          <div>
+            <div style="font-weight:700;font-size:15px;color:#1e293b;">${g.icone || '🎯'} ${g.nome}</div>
+            <div style="font-size:12px;color:#94a3b8;margin-top:2px;">${ag.qtd} lançamento${ag.qtd === 1 ? '' : 's'}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;font-size:16px;color:#dc2626;">${R$(ag.total)}</div>
+            <div style="font-size:11px;color:#94a3b8;">toque para detalhes ▾</div>
+          </div>
+        </div>
+        <div id="grupo-detalhe-${g.id}" style="display:none;padding:0 16px 14px;border-top:1px solid #f1f5f9;">
+          ${_renderGrupoDetalheHtml(ag)}
+        </div>
+      </div>`;
+  });
+
+  cont.innerHTML = html;
+}
+
+function _renderGrupoDetalheHtml(ag) {
+  // Detalhe por categoria
+  const catEntries = Object.entries(ag.porCat).sort((a, b) => b[1] - a[1]);
+  let catHtml = '<div style="font-size:12px;font-weight:700;color:#374151;margin:12px 0 8px;">Por categoria</div>';
+  if (!catEntries.length) {
+    catHtml += '<div style="font-size:13px;color:#94a3b8;">Sem lançamentos.</div>';
+  } else {
+    catEntries.forEach(([catId, valor]) => {
+      const cat = categorias.find(c => c.id === catId);
+      const nome = cat ? `${cat.icone || '📁'} ${cat.nome}` : 'Sem categoria';
+      const pct = ag.total > 0 ? Math.round((valor / ag.total) * 100) : 0;
+      catHtml += `
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#374151;margin-bottom:3px;">
+            <span>${nome}</span><span style="font-weight:600;">${R$(valor)} · ${pct}%</span>
+          </div>
+          <div style="height:6px;background:#f1f5f9;border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:#4f46e5;"></div>
+          </div>
+        </div>`;
+    });
+  }
+
+  // Lista de lançamentos (mais recentes primeiro)
+  const itens = [...ag.itens].sort((a, b) => (a.data < b.data ? 1 : -1));
+  let itensHtml = '<div style="font-size:12px;font-weight:700;color:#374151;margin:14px 0 8px;">Lançamentos</div>';
+  itens.forEach(l => {
+    const d = l.data ? l.data.split('-').reverse().slice(0, 2).join('/') : '';
+    itensHtml += `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f8fafc;font-size:13px;">
+        <span style="color:#374151;">${d} · ${l.descricao || ''}</span>
+        <span style="font-weight:600;color:#dc2626;">${R$(Number(l.valor))}</span>
+      </div>`;
+  });
+
+  return catHtml + itensHtml;
+}
+
+function toggleGrupoDetalhe(grupoId) {
+  const el = document.getElementById('grupo-detalhe-' + grupoId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 function _renderizarRelatorioResumo() {
@@ -4170,6 +4420,7 @@ async function renderizarConfig() {
   if (!el) return;
   await carregarCategorias();
   await carregarFavorecidos();
+  await carregarGrupos();
   await carregarRecorrencias();
 
   const despesas = categorias.filter(c => c.tipo === 'despesa' && !c.parent_id);
@@ -4258,6 +4509,19 @@ async function renderizarConfig() {
           <span style="font-size:14px;">${f.nome}</span>
           <button onclick="abrirModalFavorecido('${f.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
         </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum favorecido ainda. Exemplos: Vivo, Energisa, Condomínio...</div>'}
+      </div>
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:15px;">🎯 Grupos</div>
+        <button onclick="abrirModalGrupo()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;">+ Grupo</button>
+      </div>
+      <div style="max-height:280px;overflow-y:auto;padding-right:4px;">
+      ${grupos.length ? grupos.map(g => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+          <span style="font-size:14px;">${g.icone || '🎯'} ${g.nome}</span>
+          <button onclick="abrirModalGrupo('${g.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
+        </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum grupo ainda. Exemplos: Férias Serra Negra Julho, Reforma da casa, Natal...</div>'}
       </div>
     </div>
     <div class="card" style="padding:16px;">
