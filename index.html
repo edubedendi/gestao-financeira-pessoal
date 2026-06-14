@@ -595,6 +595,12 @@
     </div>
     <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Cole o texto do extrato bancário abaixo. O sistema tentará identificar as transações automaticamente.</p>
     <div style="margin-bottom:16px;">
+      <label>Conta</label>
+      <select id="import-conta">
+        <option value="">Sem conta vinculada</option>
+      </select>
+    </div>
+    <div style="margin-bottom:16px;">
       <label>Texto do Extrato</label>
       <textarea id="extrato-texto" rows="8" placeholder="Cole aqui o conteúdo do extrato...&#10;&#10;Exemplo:&#10;15/05 SUPERMERCADO EXTRA -250,00&#10;16/05 PIX RECEBIDO +1500,00&#10;17/05 IFOOD -45,80"></textarea>
     </div>
@@ -2339,9 +2345,12 @@ async function excluirLancamento() {
 // IMPORTAR EXTRATO
 // ============================================================
 function abrirImportacao() {
+  // Conta padrão: a que estava selecionada no lançamento, ou a conta ativa no Extrato
+  const contaPadrao = document.getElementById('lanc-conta')?.value || extratoContaAtual || '';
   fecharModal('modal-lancamento');
   document.getElementById('extrato-texto').value = '';
   document.getElementById('extrato-resultado').classList.add('hidden');
+  popularSelectContas('import-conta', contaPadrao);
   abrirModal('modal-importar');
 }
 
@@ -2599,6 +2608,7 @@ function renderizarTransacoesImportadas(transacoes) {
 
 async function confirmarImportacao(total) {
   const uid = (await sb.auth.getUser()).data.user.id;
+  const contaIdImport = document.getElementById('import-conta')?.value || null;
   const inserts = [];
   for (let i = 0; i < total; i++) {
     if (!document.getElementById(`tr-${i}`).checked) continue;
@@ -2624,6 +2634,7 @@ async function confirmarImportacao(total) {
       categoria_id: catIdFinal,
       favorecido_id: favId,
       grupo_id: grupoId,
+      conta_id: contaIdImport,
       forma_pagamento: forma,
       observacao: obs
     });
@@ -2635,6 +2646,7 @@ async function confirmarImportacao(total) {
   fecharModal('modal-importar');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'extrato') renderizarExtrato();
 }
 
 // ============================================================
