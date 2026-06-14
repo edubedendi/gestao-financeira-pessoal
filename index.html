@@ -3704,6 +3704,7 @@ async function renderizarExtrato(opts = {}) {
   const { data: lancMes } = await sb.from('lancamentos')
     .select('*, categorias(nome,icone), favorecidos(nome)')
     .eq('conta_id', extratoContaAtual)
+    .or('observacao.is.null,observacao.neq.__hol__')
     .gte('data', inicioMes)
     .lte('data', fimMes)
     .order('data', { ascending: true })
@@ -3712,6 +3713,7 @@ async function renderizarExtrato(opts = {}) {
   const { data: lancAnteriores } = await sb.from('lancamentos')
     .select('valor,tipo')
     .eq('conta_id', extratoContaAtual)
+    .or('observacao.is.null,observacao.neq.__hol__')
     .lt('data', inicioMes);
 
   const saldoAnteriorMes = (conta.saldo_inicial || 0) + (lancAnteriores || []).reduce((s, l) => {
