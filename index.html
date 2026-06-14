@@ -32,8 +32,15 @@
     .tab-btn.active { background: #4f46e5; color: white; }
     .hidden { display: none !important; }
     .fav-combo { position: relative; }
-    .fav-combo-lista { position: absolute; top: 100%; left: 0; right: 0; z-index: 70; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 4px; max-height: 200px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-    .fav-combo-item { padding: 9px 12px; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fav-combo-trigger { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 15px; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .fav-combo-trigger:hover { border-color: #cbd5e1; }
+    .fav-combo-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fav-combo-ph { color: #94a3b8; }
+    .fav-combo-caret { color: #94a3b8; font-size: 12px; flex-shrink: 0; }
+    .fav-combo-lista { position: absolute; top: 100%; left: 0; right: 0; z-index: 70; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 4px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+    .fav-combo-busca { width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; font-size: 14px; margin-bottom: 6px; }
+    .fav-combo-itens { max-height: 180px; overflow-y: auto; }
+    .fav-combo-item { padding: 9px 12px; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; }
     .fav-combo-item:hover { background: #ede9fe; color: #6d28d9; }
     .fav-combo-vazio { color: #94a3b8; }
     #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 20px; border-radius: 10px; font-size: 14px; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
@@ -207,10 +214,15 @@
         <div>
           <label>Favorecido</label>
           <div class="fav-combo">
-            <input type="text" id="filtro-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="Todos"
-              oninput="filtrarFavCombo('filtro-favorecido')" onfocus="abrirFavCombo('filtro-favorecido')" onblur="blurFavCombo('filtro-favorecido')" />
+            <div class="fav-combo-trigger" id="filtro-favorecido-trigger" onclick="abrirFavCombo('filtro-favorecido')">
+              <span id="filtro-favorecido-label" class="fav-combo-label fav-combo-ph" data-ph="Todos">Todos</span>
+              <span class="fav-combo-caret">▾</span>
+            </div>
             <input type="hidden" id="filtro-favorecido" />
-            <div id="filtro-favorecido-lista" class="fav-combo-lista hidden"></div>
+            <div id="filtro-favorecido-lista" class="fav-combo-lista hidden">
+              <input type="text" id="filtro-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="🔍 Pesquisar favorecido..." oninput="filtrarFavCombo('filtro-favorecido')" />
+              <div id="filtro-favorecido-itens" class="fav-combo-itens"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -381,10 +393,15 @@
         <label>Favorecido</label>
         <div style="display:flex;gap:8px;align-items:flex-start;">
           <div class="fav-combo" style="flex:1;">
-            <input type="text" id="lanc-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="Digite para buscar ou deixe em branco..."
-              oninput="filtrarFavCombo('lanc-favorecido')" onfocus="abrirFavCombo('lanc-favorecido')" onblur="blurFavCombo('lanc-favorecido')" />
+            <div class="fav-combo-trigger" id="lanc-favorecido-trigger" onclick="abrirFavCombo('lanc-favorecido')">
+              <span id="lanc-favorecido-label" class="fav-combo-label fav-combo-ph" data-ph="Selecione ou deixe em branco...">Selecione ou deixe em branco...</span>
+              <span class="fav-combo-caret">▾</span>
+            </div>
             <input type="hidden" id="lanc-favorecido" />
-            <div id="lanc-favorecido-lista" class="fav-combo-lista hidden"></div>
+            <div id="lanc-favorecido-lista" class="fav-combo-lista hidden">
+              <input type="text" id="lanc-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="🔍 Pesquisar favorecido..." oninput="filtrarFavCombo('lanc-favorecido')" />
+              <div id="lanc-favorecido-itens" class="fav-combo-itens"></div>
+            </div>
           </div>
           <button type="button" onclick="abrirModalFavorecidoRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;white-space:nowrap;" title="Cadastrar novo favorecido">+</button>
         </div>
@@ -1245,28 +1262,33 @@ function popularSelectFavorecidos(selectId, valorAtual = '') {
   });
 }
 
-/* ===== Campo de busca de favorecidos (combobox) ===== */
+/* ===== Campo de busca de favorecidos (combobox com campo de pesquisa dedicado) ===== */
 const FAV_COMBO_CB = { 'filtro-favorecido': 'renderizarLancamentos()' };
 
 function renderFavComboLista(id, termo = '') {
-  const lista = document.getElementById(id + '-lista');
-  if (!lista) return;
+  const itens = document.getElementById(id + '-itens');
+  if (!itens) return;
   const t = (termo || '').toLowerCase().trim();
   const arr = t ? favorecidos.filter(f => f.nome.toLowerCase().includes(t)) : favorecidos;
-  let html = `<div class="fav-combo-item fav-combo-vazio" onmousedown="event.preventDefault();selecionarFavCombo('${id}','')">— Sem favorecido —</div>`;
+  let html = `<div class="fav-combo-item fav-combo-vazio" onclick="selecionarFavCombo('${id}','')">— Sem favorecido —</div>`;
   if (arr.length === 0) {
     html += `<div class="fav-combo-item fav-combo-vazio" style="cursor:default;">Nenhum encontrado</div>`;
   } else {
-    html += arr.map(f => `<div class="fav-combo-item" onmousedown="event.preventDefault();selecionarFavCombo('${id}','${f.id}')">${f.icone ? f.icone + ' ' : ''}${f.nome}</div>`).join('');
+    html += arr.map(f => `<div class="fav-combo-item" onclick="selecionarFavCombo('${id}','${f.id}')">${f.icone ? f.icone + ' ' : ''}${f.nome}</div>`).join('');
   }
-  lista.innerHTML = html;
+  itens.innerHTML = html;
 }
 
 function abrirFavCombo(id) {
-  const busca = document.getElementById(id + '-busca');
-  renderFavComboLista(id, busca ? busca.value : '');
   const lista = document.getElementById(id + '-lista');
-  if (lista) lista.classList.remove('hidden');
+  if (!lista) return;
+  // Fecha qualquer outro aberto
+  document.querySelectorAll('.fav-combo-lista:not(.hidden)').forEach(l => { if (l !== lista) l.classList.add('hidden'); });
+  const busca = document.getElementById(id + '-busca');
+  if (busca) busca.value = '';
+  renderFavComboLista(id, '');
+  lista.classList.remove('hidden');
+  if (busca) setTimeout(() => busca.focus(), 0);
 }
 
 function fecharFavCombo(id) {
@@ -1275,49 +1297,47 @@ function fecharFavCombo(id) {
 }
 
 function filtrarFavCombo(id) {
-  const hidden = document.getElementById(id);
-  if (hidden) hidden.value = '';
-  abrirFavCombo(id);
+  const busca = document.getElementById(id + '-busca');
+  renderFavComboLista(id, busca ? busca.value : '');
+}
+
+function atualizarLabelFavCombo(id, f) {
+  const label = document.getElementById(id + '-label');
+  if (!label) return;
+  if (f) {
+    label.textContent = (f.icone ? f.icone + ' ' : '') + f.nome;
+    label.classList.remove('fav-combo-ph');
+  } else {
+    label.textContent = label.dataset.ph || 'Selecione...';
+    label.classList.add('fav-combo-ph');
+  }
 }
 
 function selecionarFavCombo(id, favId) {
   const f = favId ? favorecidos.find(x => x.id === favId) : null;
   const hidden = document.getElementById(id);
-  const busca = document.getElementById(id + '-busca');
   if (hidden) hidden.value = favId || '';
-  if (busca) busca.value = f ? f.nome : '';
+  atualizarLabelFavCombo(id, f);
   fecharFavCombo(id);
   if (FAV_COMBO_CB[id]) { try { eval(FAV_COMBO_CB[id]); } catch (e) {} }
 }
 
-function blurFavCombo(id) {
-  setTimeout(() => {
-    const busca = document.getElementById(id + '-busca');
-    const hidden = document.getElementById(id);
-    if (busca && hidden && !hidden.value) {
-      const txt = busca.value.trim().toLowerCase();
-      const f = txt ? favorecidos.find(x => x.nome.toLowerCase() === txt) : null;
-      if (f) {
-        hidden.value = f.id;
-        busca.value = f.nome;
-        if (FAV_COMBO_CB[id]) { try { eval(FAV_COMBO_CB[id]); } catch (e) {} }
-      } else {
-        busca.value = '';
-      }
-    }
-    fecharFavCombo(id);
-  }, 150);
-}
-
 function setFavCombo(id, valorAtual = '') {
   const hidden = document.getElementById(id);
-  const busca = document.getElementById(id + '-busca');
-  if (!hidden || !busca) return;
+  if (!hidden) return;
   hidden.value = valorAtual || '';
   const f = valorAtual ? favorecidos.find(x => x.id === valorAtual) : null;
-  busca.value = f ? f.nome : '';
+  atualizarLabelFavCombo(id, f);
   fecharFavCombo(id);
 }
+
+// Fecha o dropdown ao clicar fora dele
+document.addEventListener('click', (e) => {
+  const dentro = e.target.closest('.fav-combo');
+  document.querySelectorAll('.fav-combo-lista:not(.hidden)').forEach(l => {
+    if (!dentro || dentro !== l.parentElement) l.classList.add('hidden');
+  });
+});
 
 const EMOJIS_FAVORECIDOS = ['🏢','🏪','🏬','🏦','🏥','🏫','🛒','🚗','✈️','🍕','☕','💊','📱','💡','💧','🔥','🏠','🎓','💈','🎭','🏋️','🐾','📦','🛠️','💻','🎵','📺'];
 
@@ -1453,6 +1473,14 @@ async function salvarGrupo() {
     const { data, error } = await sb.from('grupos').insert({ user_id: uid, nome }).select().single();
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     await carregarGrupos();
+    if (window._grupoCallback && data) {
+      const cb = window._grupoCallback;
+      window._grupoCallback = null;
+      fecharModal('modal-grupo');
+      await cb(data.id);
+      toast('Grupo criado!', 'ok');
+      return;
+    }
     if (window._grupoModoRapido && data) {
       // Seleciona automaticamente no modal de lançamento
       popularSelectGrupos('lanc-grupo');
@@ -2530,12 +2558,24 @@ function renderizarTransacoesImportadas(transacoes) {
             </div>
             <div style="margin-top:6px;display:flex;gap:4px;">
               <div class="fav-combo" style="flex:1;">
-                <input type="text" id="tr-fav-${i}-busca" class="fav-combo-busca" autocomplete="off" placeholder="Favorecido (opcional)" style="font-size:12px;padding:4px 8px;"
-                  oninput="filtrarFavCombo('tr-fav-${i}')" onfocus="abrirFavCombo('tr-fav-${i}')" onblur="blurFavCombo('tr-fav-${i}')" />
+                <div class="fav-combo-trigger" id="tr-fav-${i}-trigger" onclick="abrirFavCombo('tr-fav-${i}')" style="font-size:12px;padding:4px 8px;">
+                  <span id="tr-fav-${i}-label" class="fav-combo-label fav-combo-ph" data-ph="Favorecido (opcional)">Favorecido (opcional)</span>
+                  <span class="fav-combo-caret">▾</span>
+                </div>
                 <input type="hidden" id="tr-fav-${i}" />
-                <div id="tr-fav-${i}-lista" class="fav-combo-lista hidden"></div>
+                <div id="tr-fav-${i}-lista" class="fav-combo-lista hidden">
+                  <input type="text" id="tr-fav-${i}-busca" class="fav-combo-busca" autocomplete="off" placeholder="🔍 Pesquisar..." oninput="filtrarFavCombo('tr-fav-${i}')" />
+                  <div id="tr-fav-${i}-itens" class="fav-combo-itens"></div>
+                </div>
               </div>
               <button type="button" onclick="abrirFavParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Novo favorecido">+</button>
+            </div>
+            <div style="margin-top:6px;display:flex;gap:4px;">
+              <select id="tr-grupo-${i}" style="font-size:12px;padding:4px 8px;flex:1;">
+                <option value="">Sem grupo</option>
+                ${grupos.map(g => `<option value="${g.id}">${g.icone || '🎯'} ${g.nome}</option>`).join('')}
+              </select>
+              <button type="button" onclick="abrirGrupoParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Novo grupo">+</button>
             </div>
             <div style="margin-top:6px;">
               <select id="tr-forma-${i}" style="font-size:12px;padding:4px 8px;width:100%;">
@@ -2566,6 +2606,7 @@ async function confirmarImportacao(total) {
     const subCatId = document.getElementById(`tr-subcat-${i}`)?.value || null;
     const catIdFinal = subCatId || catId;
     const favId = document.getElementById(`tr-fav-${i}`).value || null;
+    const grupoId = document.getElementById(`tr-grupo-${i}`)?.value || null;
     const forma = document.getElementById(`tr-forma-${i}`).value || 'dinheiro';
     const tipo = document.getElementById(`tr-tipo-${i}`).value;
     const favNome = favId ? (favorecidos.find(f => f.id === favId)?.nome || '') : '';
@@ -2582,6 +2623,7 @@ async function confirmarImportacao(total) {
       tipo,
       categoria_id: catIdFinal,
       favorecido_id: favId,
+      grupo_id: grupoId,
       forma_pagamento: forma,
       observacao: obs
     });
@@ -4719,6 +4761,15 @@ function abrirFavParaImport(i) {
     setFavCombo(`tr-fav-${i}`, novoId);
   };
   abrirModalFavorecido(null);
+}
+
+// Abre modal de novo grupo a partir de um card de importação
+function abrirGrupoParaImport(i) {
+  window._grupoCallback = async (novoId) => {
+    await carregarGrupos();
+    popularSelectGrupos(`tr-grupo-${i}`, novoId);
+  };
+  abrirModalGrupo(null);
 }
 
 // Abre modal de nova categoria a partir de um card de importação
