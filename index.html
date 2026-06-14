@@ -390,11 +390,11 @@
 
       <!-- Favorecido -->
       <div>
-        <label>Favorecido</label>
+        <label>Favorecido <span style="color:#dc2626;">*</span></label>
         <div style="display:flex;gap:8px;align-items:flex-start;">
           <div class="fav-combo" style="flex:1;">
             <div class="fav-combo-trigger" id="lanc-favorecido-trigger" onclick="abrirFavCombo('lanc-favorecido')">
-              <span id="lanc-favorecido-label" class="fav-combo-label fav-combo-ph" data-ph="Selecione ou deixe em branco...">Selecione ou deixe em branco...</span>
+              <span id="lanc-favorecido-label" class="fav-combo-label fav-combo-ph" data-ph="Selecione o favorecido...">Selecione o favorecido...</span>
               <span class="fav-combo-caret">▾</span>
             </div>
             <input type="hidden" id="lanc-favorecido" />
@@ -409,9 +409,9 @@
 
       <!-- Conta -->
       <div>
-        <label>Conta</label>
+        <label>Conta <span style="color:#dc2626;">*</span></label>
         <select id="lanc-conta">
-          <option value="">Sem conta vinculada</option>
+          <option value="">Selecione a conta...</option>
         </select>
       </div>
 
@@ -429,18 +429,18 @@
       <!-- Valor e Data lado a lado -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div>
-          <label>Valor (R$)</label>
+          <label>Valor (R$) <span style="color:#dc2626;">*</span></label>
           <input type="number" id="lanc-valor" placeholder="0,00" step="0.01" min="0" />
         </div>
         <div>
-          <label>Data</label>
+          <label>Data <span style="color:#dc2626;">*</span></label>
           <input type="date" id="lanc-data" />
         </div>
       </div>
 
       <!-- Categoria -->
       <div>
-        <label>Categoria</label>
+        <label>Categoria <span style="color:#dc2626;">*</span></label>
         <div style="display:flex;gap:8px;">
           <select id="lanc-categoria" onchange="atualizarSubcategorias()" style="flex:1;">
             <option value="">Selecione...</option>
@@ -449,7 +449,7 @@
         </div>
       </div>
       <div id="lanc-subcategoria-group" class="hidden">
-        <label>Subcategoria</label>
+        <label>Subcategoria <span style="color:#dc2626;">*</span></label>
         <div style="display:flex;gap:8px;">
           <select id="lanc-subcategoria" style="flex:1;">
             <option value="">Selecione...</option>
@@ -460,7 +460,7 @@
 
       <!-- Forma de Pagamento -->
       <div id="lanc-forma-group">
-        <label>Forma de Pagamento</label>
+        <label>Forma de Pagamento <span style="color:#dc2626;">*</span></label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
           <button type="button" id="pgto-dinheiro" onclick="setFormaPgto('dinheiro')" style="padding:10px 6px;border:2px solid #4f46e5;border-radius:8px;background:#ede9fe;color:#4f46e5;font-size:13px;font-weight:600;cursor:pointer;">💵 Dinheiro</button>
           <button type="button" id="pgto-debito"   onclick="setFormaPgto('debito')"   style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">💳 Débito</button>
@@ -2244,7 +2244,16 @@ async function salvarLancamento() {
   const catNome = catId ? (categorias.find(c => c.id === catId)?.nome || '') : '';
   const desc = favNome || catNome || (tipo === 'receita' ? 'Receita' : 'Despesa');
 
-  if (!valor || !data) { toast('Preencha o valor e a data', 'erro'); return; }
+  // Validação de campos obrigatórios
+  const catIdPrincipal = document.getElementById('lanc-categoria').value || null;
+  const subGroupVisivel = !document.getElementById('lanc-subcategoria-group').classList.contains('hidden');
+  if (!favId) { toast('Selecione o favorecido', 'erro'); return; }
+  if (!contaId) { toast('Selecione a conta', 'erro'); return; }
+  if (!valor) { toast('Informe o valor', 'erro'); return; }
+  if (!data) { toast('Informe a data', 'erro'); return; }
+  if (!catIdPrincipal) { toast('Selecione a categoria', 'erro'); return; }
+  if (subGroupVisivel && !document.getElementById('lanc-subcategoria').value) { toast('Selecione a subcategoria', 'erro'); return; }
+  if (!forma) { toast('Selecione a forma de pagamento', 'erro'); return; }
   if (forma === 'cartao' && !cartaoId) { toast('Selecione o cartão', 'erro'); return; }
 
   const id = document.getElementById('lanc-id').value;
