@@ -558,6 +558,20 @@
   </div>
 </div>
 
+<!-- Modal Converter Holerites Antigos -->
+<div id="modal-converter-holerite" class="modal-overlay hidden" style="z-index:60;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Converter holerites antigos</h3>
+      <button onclick="fecharModal('modal-converter-holerite')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <p style="font-size:13px;color:#64748b;margin-bottom:14px;">Para cada holerite já lançado que ainda não tem o depósito do líquido, vou criar o lançamento do salário líquido na conta escolhida. Holerites já convertidos são ignorados.</p>
+    <label style="font-size:14px;">Conta onde cai o salário</label>
+    <select id="conv-hol-conta" style="margin-bottom:16px;"></select>
+    <button class="btn-primary" style="width:100%;" onclick="converterHoleritesAntigos()">Converter</button>
+  </div>
+</div>
+
 <!-- Modal Importar Extrato -->
 <div id="modal-importar" class="modal-overlay hidden">
   <div class="modal-box">
@@ -764,6 +778,12 @@
       <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Proventos:</span><span id="hol-bruto" style="font-weight:600;">R$ 0,00</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#64748b;">Total Descontos:</span><span id="hol-descontos" style="font-weight:600;color:#dc2626;">R$ 0,00</span></div>
       <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span id="hol-liquido" style="font-weight:700;color:#059669;font-size:18px;">R$ 0,00</span></div>
+    </div>
+    <!-- CONTA ONDE CAI O LÍQUIDO -->
+    <div style="margin-bottom:20px;">
+      <label style="font-size:14px;margin:0 0 6px;display:block;">🏦 Conta onde cai o líquido</label>
+      <select id="hol-conta"></select>
+      <div style="font-size:11px;color:#94a3b8;margin-top:6px;">O salário líquido vira um lançamento de receita nesta conta (aparece no extrato e é conciliável). O bruto e os descontos ficam só como referência aqui no holerite.</div>
     </div>
     <button class="btn-primary" style="width:100%;" onclick="salvarHolerite()">Salvar Holerite</button>
   </div>
@@ -1516,9 +1536,11 @@ async function renderizarDashboard() {
 
   if (errLanc) throw errLanc;
 
-  // Transferências excluídas dos cálculos financeiros
-  const receitas = (lancDados || []).filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
-  const despesas = (lancDados || []).filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
+  // Detalhamento do holerite (__hol__) é só referência: não conta como receita/despesa.
+  // O salário entra como o depósito líquido (__hol_liq__), que conta normalmente.
+  const lancReais = (lancDados || []).filter(l => l.observacao !== '__hol__');
+  const receitas = lancReais.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+  const despesas = lancReais.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
   const saldo = receitas - despesas;
 
   const { data: configPoupa } = await comTimeout(
@@ -1536,7 +1558,7 @@ async function renderizarDashboard() {
   const categoriasAlerta = [];
   (orcDados || []).forEach(o => {
     if (o.categorias?.tipo !== 'despesa') return; // alertas só para despesas
-    const gasto = (lancDados || [])
+    const gasto = lancReais
       .filter(l => l.categoria_id === o.categoria_id)
       .reduce((s, l) => s + Number(l.valor), 0);
     const pct = o.valor_planejado > 0 ? (gasto / o.valor_planejado) * 100 : 0;
@@ -2982,16 +3004,16 @@ async function renderizarRelatorio() {
 
   const [{ data: orcData }, { data: lancData }] = await Promise.all([
     sb.from('orcamento').select('valor_planejado, categoria_id').eq('mes', relMes).eq('ano', relAno),
-    sb.from('lancamentos').select('valor, tipo, categoria_id').gte('data', primeiroDia).lte('data', ultimoDia),
+    sb.from('lancamentos').select('valor, tipo, categoria_id, observacao').gte('data', primeiroDia).lte('data', ultimoDia),
   ]);
 
   // Indexa orçamento por categoria
   const orcPorCat = {};
   (orcData || []).forEach(o => { orcPorCat[o.categoria_id] = (orcPorCat[o.categoria_id] || 0) + Number(o.valor_planejado); });
 
-  // Indexa realizado por categoria
+  // Indexa realizado por categoria (ignora o detalhamento do holerite, que é só referência)
   const realPorCat = {};
-  (lancData || []).forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancData || []).filter(l => l.observacao !== '__hol__').forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
   // Guarda no estado global para trocarAba usar sem re-fetch
   window._relOrcPorCat  = orcPorCat;
@@ -4039,6 +4061,12 @@ async function renderizarHolerite() {
 
   const holLancs = await buscarLancamentosHolerite(dataInicio, dataFim);
 
+  // Depósito do líquido vinculado a uma conta (se existir), para mostrar onde caiu
+  await carregarContas();
+  const { data: depHolMes } = await sb.from('lancamentos').select('conta_id')
+    .eq('user_id', uid).eq('observacao', '__hol_liq__')
+    .gte('data', dataInicio).lte('data', dataFim).maybeSingle();
+
   // Busca outros lançamentos do dia 1 (receitas e despesas) fora dos campos padrão do holerite
   const { data: rawExtras } = await sb.from('lancamentos')
     .select('*, categorias(nome,icone)')
@@ -4126,6 +4154,13 @@ async function renderizarHolerite() {
     <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;"><span style="font-weight:700;">Valor Líquido:</span><span style="font-weight:700;color:${liquido >= 0 ? '#059669' : '#dc2626'};font-size:18px;">${R$(liquido)}</span></div>
   </div></div>`;
 
+  if (depHolMes?.conta_id) {
+    const cn = contas.find(c => c.id === depHolMes.conta_id);
+    html += `<div style="font-size:12px;color:#059669;margin:0 0 14px;padding:0 4px;">🏦 Líquido depositado em <b>${cn ? cn.nome : 'conta'}</b> — conta como sua renda e aparece no extrato.</div>`;
+  } else {
+    html += `<div style="font-size:12px;color:#94a3b8;margin:0 0 14px;padding:0 4px;">💡 Toque em "Editar" e escolha a conta onde cai o líquido para o depósito aparecer no extrato.</div>`;
+  }
+
   // ── Resumo IR acumulado no ano ─────────────────────────────────
   const anualLancs = await buscarLancamentosHolerite(`${anoAtual}-01-01`, dataFim);
 
@@ -4192,6 +4227,16 @@ async function abrirModalHolerite() {
   const dataPadrao = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-05`;
   document.getElementById('hol-data').value = dataExistente || dataPadrao;
 
+  // Conta de depósito do líquido: pré-seleciona a já usada neste mês, se houver
+  await carregarContas();
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { data: depMes } = await sb.from('lancamentos').select('conta_id')
+    .eq('user_id', uid).eq('observacao', '__hol_liq__')
+    .gte('data', dataInicio).lte('data', dataFim).maybeSingle();
+  popularSelectContas('hol-conta', depMes?.conta_id || '');
+  const selConta = document.getElementById('hol-conta');
+  if (selConta && selConta.options[0]) selConta.options[0].textContent = 'Não depositar (só registro)';
+
   recalcularHolerite();
   abrirModal('modal-holerite');
 }
@@ -4214,33 +4259,94 @@ async function salvarHolerite() {
   if (!dataLanc) { toast('Informe a data de pagamento', 'erro'); return; }
   const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
+  const contaSel = document.getElementById('hol-conta')?.value || null;
 
-  // Apaga lançamentos de holerite do mês
+  // Apaga lançamentos de holerite do mês (detalhamento + depósito do líquido)
   const { error: errDelete } = await sb.from('lancamentos').delete()
-    .eq('user_id', uid).eq('observacao', '__hol__')
+    .eq('user_id', uid).in('observacao', ['__hol__', '__hol_liq__'])
     .gte('data', dataInicio).lte('data', dataFim);
   if (errDelete) { toast('Erro ao atualizar holerite: ' + errDelete.message, 'erro'); return; }
 
-  // Cria novos lançamentos para cada campo preenchido
+  // Cria os lançamentos de detalhamento (só referência — não contam nos relatórios)
   const novosLancs = [];
+  let totalProv = 0, totalDesc = 0;
   for (const f of HOL_FIELDS) {
     const val = parseFloat(document.getElementById(`hol-${f.id}`)?.value||0)||0;
     if (val <= 0) continue;
+    if (f.tipo === 'receita') totalProv += val; else totalDesc += val;
     const catId = await encontrarOuCriarCatHol(f.catNome, f.tipo, f.icone);
     novosLancs.push({ user_id: uid, data: dataLanc, descricao: f.label, valor: val, tipo: f.tipo, categoria_id: catId, observacao: '__hol__' });
   }
 
   if (novosLancs.length === 0) { toast('Preencha ao menos um campo', 'erro'); return; }
+
+  // Depósito do salário líquido na conta corrente (esse SIM conta como sua renda)
+  const liquido = Math.round((totalProv - totalDesc) * 100) / 100;
+  if (contaSel && liquido > 0) {
+    const catLiq = await encontrarOuCriarCatHol('Salário líquido', 'receita', '💰');
+    novosLancs.push({ user_id: uid, data: dataLanc, descricao: 'Salário líquido', valor: liquido, tipo: 'receita', categoria_id: catLiq, conta_id: contaSel, observacao: '__hol_liq__' });
+  }
+
   const { error: errInsert } = await sb.from('lancamentos').insert(novosLancs);
   if (errInsert) {
     toast('Erro ao salvar holerite: ' + errInsert.message, 'erro');
     return; // não fecha o modal — dados ainda não foram salvos
   }
 
-  toast('Holerite salvo!', 'ok');
+  toast(contaSel && liquido > 0 ? 'Holerite salvo e líquido depositado!' : 'Holerite salvo!', 'ok');
   fecharModal('modal-holerite');
   renderizarHolerite();
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
+}
+
+// Conversão dos holerites já lançados: gera o depósito do líquido na conta escolhida
+async function abrirConverterHolerite() {
+  await carregarContas();
+  popularSelectContas('conv-hol-conta');
+  const sel = document.getElementById('conv-hol-conta');
+  if (sel && sel.options[0]) sel.options[0].textContent = 'Selecione a conta...';
+  abrirModal('modal-converter-holerite');
+}
+
+async function converterHoleritesAntigos() {
+  const contaId = document.getElementById('conv-hol-conta')?.value;
+  if (!contaId) { toast('Escolha a conta corrente', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+
+  const { data: detalhe } = await sb.from('lancamentos').select('valor, tipo, data')
+    .eq('user_id', uid).eq('observacao', '__hol__');
+  if (!detalhe || detalhe.length === 0) { toast('Nenhum holerite antigo encontrado', 'erro'); return; }
+
+  const { data: depositos } = await sb.from('lancamentos').select('data')
+    .eq('user_id', uid).eq('observacao', '__hol_liq__');
+  const mesesComDep = new Set((depositos || []).map(d => d.data.slice(0, 7)));
+
+  // Agrupa o detalhamento por mês e calcula o líquido (proventos - descontos)
+  const porMes = {};
+  detalhe.forEach(l => {
+    const mes = l.data.slice(0, 7);
+    if (!porMes[mes]) porMes[mes] = { liquido: 0, data: l.data };
+    porMes[mes].liquido += (l.tipo === 'receita' ? Number(l.valor) : -Number(l.valor));
+  });
+
+  const catLiq = await encontrarOuCriarCatHol('Salário líquido', 'receita', '💰');
+  const novos = [];
+  Object.keys(porMes).forEach(mes => {
+    if (mesesComDep.has(mes)) return;
+    const liq = Math.round(porMes[mes].liquido * 100) / 100;
+    if (liq > 0) novos.push({ user_id: uid, data: porMes[mes].data, descricao: 'Salário líquido', valor: liq, tipo: 'receita', categoria_id: catLiq, conta_id: contaId, observacao: '__hol_liq__' });
+  });
+
+  if (novos.length === 0) { toast('Todos os holerites já estão convertidos', 'ok'); fecharModal('modal-converter-holerite'); return; }
+  const { error } = await sb.from('lancamentos').insert(novos);
+  if (error) { toast('Erro na conversão: ' + error.message, 'erro'); return; }
+
+  toast(`${novos.length} mês(es) convertido(s)!`, 'ok');
+  fecharModal('modal-converter-holerite');
+  if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
 }
 
 // ============================================================
@@ -4255,10 +4361,10 @@ async function renderizarPoupanca() {
   const { data: configPoupa } = await sb.from('config_poupanca_mensal').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
 
   const percPoupa = configPoupa?.percentual || 0;
-  const { data: lanc } = await sb.from('lancamentos').select('valor').eq('tipo','receita')
+  const { data: lanc } = await sb.from('lancamentos').select('valor, observacao').eq('tipo','receita')
     .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
     .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`);
-  const totalReceitas = (lanc||[]).reduce((s,l)=>s+Number(l.valor),0);
+  const totalReceitas = (lanc||[]).filter(l => l.observacao !== '__hol__').reduce((s,l)=>s+Number(l.valor),0);
   const metaMensal = totalReceitas * (percPoupa / 100);
 
   const aportesMes = (aportes||[]).filter(a => a.mes === mesAtual && a.ano === anoAtual);
@@ -4600,6 +4706,11 @@ async function renderizarConfig() {
           <button onclick="abrirModalGrupo('${g.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
         </div>`).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum grupo ainda. Exemplos: Férias Serra Negra Julho, Reforma da casa, Natal...</div>'}
       </div>
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:15px;margin-bottom:8px;">📄 Holerite → conta corrente</div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:10px;">Gera o depósito do salário líquido na conta corrente para os holerites que você já lançou (os antigos). Roda só uma vez; meses já convertidos são ignorados.</div>
+      <button onclick="abrirConverterHolerite()" style="background:#4f46e5;color:white;border:none;border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer;">Converter holerites antigos</button>
     </div>
     <div class="card" style="padding:16px;">
       <button onclick="fazerLogout()" class="btn-danger" style="width:100%;text-align:left;">🚪 Sair da conta</button>
