@@ -31,6 +31,11 @@
     .tab-btn { padding: 8px 16px; border-radius: 8px; font-size: 14px; border: none; cursor: pointer; background: transparent; color: #64748b; }
     .tab-btn.active { background: #4f46e5; color: white; }
     .hidden { display: none !important; }
+    .fav-combo { position: relative; }
+    .fav-combo-lista { position: absolute; top: 100%; left: 0; right: 0; z-index: 70; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 4px; max-height: 200px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+    .fav-combo-item { padding: 9px 12px; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fav-combo-item:hover { background: #ede9fe; color: #6d28d9; }
+    .fav-combo-vazio { color: #94a3b8; }
     #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 12px 20px; border-radius: 10px; font-size: 14px; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
     #toast.show { opacity: 1; }
     .spinner { border: 3px solid #e2e8f0; border-top: 3px solid #4f46e5; border-radius: 50%; width: 32px; height: 32px; animation: spin 0.8s linear infinite; margin: 40px auto; }
@@ -201,9 +206,12 @@
         </div>
         <div>
           <label>Favorecido</label>
-          <select id="filtro-favorecido" onchange="renderizarLancamentos()">
-            <option value="">Todos</option>
-          </select>
+          <div class="fav-combo">
+            <input type="text" id="filtro-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="Todos"
+              oninput="filtrarFavCombo('filtro-favorecido')" onfocus="abrirFavCombo('filtro-favorecido')" onblur="blurFavCombo('filtro-favorecido')" />
+            <input type="hidden" id="filtro-favorecido" />
+            <div id="filtro-favorecido-lista" class="fav-combo-lista hidden"></div>
+          </div>
         </div>
       </div>
       <div style="margin-bottom:10px;">
@@ -371,10 +379,13 @@
       <!-- Favorecido -->
       <div>
         <label>Favorecido</label>
-        <div style="display:flex;gap:8px;">
-          <select id="lanc-favorecido" style="flex:1;">
-            <option value="">Selecione ou deixe em branco...</option>
-          </select>
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <div class="fav-combo" style="flex:1;">
+            <input type="text" id="lanc-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="Digite para buscar ou deixe em branco..."
+              oninput="filtrarFavCombo('lanc-favorecido')" onfocus="abrirFavCombo('lanc-favorecido')" onblur="blurFavCombo('lanc-favorecido')" />
+            <input type="hidden" id="lanc-favorecido" />
+            <div id="lanc-favorecido-lista" class="fav-combo-lista hidden"></div>
+          </div>
           <button type="button" onclick="abrirModalFavorecidoRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;white-space:nowrap;" title="Cadastrar novo favorecido">+</button>
         </div>
       </div>
@@ -1220,6 +1231,8 @@ async function carregarFavorecidos() {
 }
 
 function popularSelectFavorecidos(selectId, valorAtual = '') {
+  // Campos de busca (combobox) são geridos por setFavCombo
+  if (document.getElementById(selectId + '-busca')) { setFavCombo(selectId, valorAtual); return; }
   const sel = document.getElementById(selectId);
   if (!sel) return;
   sel.innerHTML = '<option value="">Selecione ou deixe em branco...</option>';
@@ -1230,6 +1243,80 @@ function popularSelectFavorecidos(selectId, valorAtual = '') {
     if (f.id === valorAtual) opt.selected = true;
     sel.appendChild(opt);
   });
+}
+
+/* ===== Campo de busca de favorecidos (combobox) ===== */
+const FAV_COMBO_CB = { 'filtro-favorecido': 'renderizarLancamentos()' };
+
+function renderFavComboLista(id, termo = '') {
+  const lista = document.getElementById(id + '-lista');
+  if (!lista) return;
+  const t = (termo || '').toLowerCase().trim();
+  const arr = t ? favorecidos.filter(f => f.nome.toLowerCase().includes(t)) : favorecidos;
+  let html = `<div class="fav-combo-item fav-combo-vazio" onmousedown="event.preventDefault();selecionarFavCombo('${id}','')">— Sem favorecido —</div>`;
+  if (arr.length === 0) {
+    html += `<div class="fav-combo-item fav-combo-vazio" style="cursor:default;">Nenhum encontrado</div>`;
+  } else {
+    html += arr.map(f => `<div class="fav-combo-item" onmousedown="event.preventDefault();selecionarFavCombo('${id}','${f.id}')">${f.icone ? f.icone + ' ' : ''}${f.nome}</div>`).join('');
+  }
+  lista.innerHTML = html;
+}
+
+function abrirFavCombo(id) {
+  const busca = document.getElementById(id + '-busca');
+  renderFavComboLista(id, busca ? busca.value : '');
+  const lista = document.getElementById(id + '-lista');
+  if (lista) lista.classList.remove('hidden');
+}
+
+function fecharFavCombo(id) {
+  const lista = document.getElementById(id + '-lista');
+  if (lista) lista.classList.add('hidden');
+}
+
+function filtrarFavCombo(id) {
+  const hidden = document.getElementById(id);
+  if (hidden) hidden.value = '';
+  abrirFavCombo(id);
+}
+
+function selecionarFavCombo(id, favId) {
+  const f = favId ? favorecidos.find(x => x.id === favId) : null;
+  const hidden = document.getElementById(id);
+  const busca = document.getElementById(id + '-busca');
+  if (hidden) hidden.value = favId || '';
+  if (busca) busca.value = f ? f.nome : '';
+  fecharFavCombo(id);
+  if (FAV_COMBO_CB[id]) { try { eval(FAV_COMBO_CB[id]); } catch (e) {} }
+}
+
+function blurFavCombo(id) {
+  setTimeout(() => {
+    const busca = document.getElementById(id + '-busca');
+    const hidden = document.getElementById(id);
+    if (busca && hidden && !hidden.value) {
+      const txt = busca.value.trim().toLowerCase();
+      const f = txt ? favorecidos.find(x => x.nome.toLowerCase() === txt) : null;
+      if (f) {
+        hidden.value = f.id;
+        busca.value = f.nome;
+        if (FAV_COMBO_CB[id]) { try { eval(FAV_COMBO_CB[id]); } catch (e) {} }
+      } else {
+        busca.value = '';
+      }
+    }
+    fecharFavCombo(id);
+  }, 150);
+}
+
+function setFavCombo(id, valorAtual = '') {
+  const hidden = document.getElementById(id);
+  const busca = document.getElementById(id + '-busca');
+  if (!hidden || !busca) return;
+  hidden.value = valorAtual || '';
+  const f = valorAtual ? favorecidos.find(x => x.id === valorAtual) : null;
+  busca.value = f ? f.nome : '';
+  fecharFavCombo(id);
 }
 
 const EMOJIS_FAVORECIDOS = ['🏢','🏪','🏬','🏦','🏥','🏫','🛒','🚗','✈️','🍕','☕','💊','📱','💡','💧','🔥','🏠','🎓','💈','🎭','🏋️','🐾','📦','🛠️','💻','🎵','📺'];
@@ -1289,8 +1376,7 @@ async function salvarFavorecido() {
     }
     if (window._favModoRapido && data) {
       // Seleciona automaticamente no modal de lançamento
-      popularSelectFavorecidos('lanc-favorecido');
-      document.getElementById('lanc-favorecido').value = data.id;
+      setFavCombo('lanc-favorecido', data.id);
       window._favModoRapido = false;
     }
     toast('Favorecido criado!', 'ok');
@@ -1844,15 +1930,7 @@ function toggleFiltros() {
         selCat.appendChild(opt);
       });
     }
-    const selFav = document.getElementById('filtro-favorecido');
-    if (selFav && selFav.options.length <= 1) {
-      favorecidos.forEach(f => {
-        const opt = document.createElement('option');
-        opt.value = f.id;
-        opt.textContent = `${f.icone || ''} ${f.nome}`;
-        selFav.appendChild(opt);
-      });
-    }
+    // filtro-favorecido agora é um campo de busca (combobox), populado dinamicamente
   }
 }
 
@@ -1890,6 +1968,7 @@ function limparFiltros() {
     const el = document.getElementById(id);
     if (el) el.value = id === 'filtro-periodo' ? 'mes' : '';
   });
+  setFavCombo('filtro-favorecido', '');
   const customDates = document.getElementById('filtro-datas-custom');
   if (customDates) { customDates.classList.add('hidden'); customDates.style.display = 'none'; }
   renderizarLancamentos();
@@ -2450,10 +2529,12 @@ function renderizarTransacoesImportadas(transacoes) {
               <button type="button" onclick="abrirSubcatParaImport(${i})" style="font-size:12px;color:#6d28d9;background:none;border:none;cursor:pointer;padding:0;">+ Nova subcategoria</button>
             </div>
             <div style="margin-top:6px;display:flex;gap:4px;">
-              <select id="tr-fav-${i}" style="font-size:12px;padding:4px 8px;flex:1;">
-                <option value="">Favorecido (opcional)</option>
-                ${favorecidos.map(f => `<option value="${f.id}">${f.nome}</option>`).join('')}
-              </select>
+              <div class="fav-combo" style="flex:1;">
+                <input type="text" id="tr-fav-${i}-busca" class="fav-combo-busca" autocomplete="off" placeholder="Favorecido (opcional)" style="font-size:12px;padding:4px 8px;"
+                  oninput="filtrarFavCombo('tr-fav-${i}')" onfocus="abrirFavCombo('tr-fav-${i}')" onblur="blurFavCombo('tr-fav-${i}')" />
+                <input type="hidden" id="tr-fav-${i}" />
+                <div id="tr-fav-${i}-lista" class="fav-combo-lista hidden"></div>
+              </div>
               <button type="button" onclick="abrirFavParaImport(${i})" style="padding:4px 8px;background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;font-size:14px;cursor:pointer;" title="Novo favorecido">+</button>
             </div>
             <div style="margin-top:6px;">
@@ -4635,11 +4716,7 @@ function abrirModalSubcategoriaRapido() {
 function abrirFavParaImport(i) {
   window._favCallback = async (novoId) => {
     await carregarFavorecidos();
-    const sel = document.getElementById(`tr-fav-${i}`);
-    if (!sel) return;
-    sel.innerHTML = '<option value="">Favorecido (opcional)</option>' +
-      favorecidos.map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
-    sel.value = novoId;
+    setFavCombo(`tr-fav-${i}`, novoId);
   };
   abrirModalFavorecido(null);
 }
