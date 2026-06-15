@@ -194,7 +194,7 @@
             <option value="dinheiro">Dinheiro</option>
             <option value="debito">Débito</option>
             <option value="pix">PIX</option>
-            <option value="cartao">Cartão</option>
+            <option value="cartao">Crédito</option>
           </select>
         </div>
         <div>
@@ -408,7 +408,7 @@
       </div>
 
       <!-- Conta -->
-      <div>
+      <div id="lanc-conta-group">
         <label>Conta <span style="color:#dc2626;">*</span></label>
         <select id="lanc-conta">
           <option value="">Selecione a conta...</option>
@@ -481,7 +481,7 @@
           <button type="button" id="pgto-dinheiro" onclick="setFormaPgto('dinheiro')" style="padding:10px 6px;border:2px solid #4f46e5;border-radius:8px;background:#ede9fe;color:#4f46e5;font-size:13px;font-weight:600;cursor:pointer;">💵 Dinheiro</button>
           <button type="button" id="pgto-debito"   onclick="setFormaPgto('debito')"   style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">💳 Débito</button>
           <button type="button" id="pgto-pix"      onclick="setFormaPgto('pix')"      style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">📱 PIX</button>
-          <button type="button" id="pgto-cartao"   onclick="setFormaPgto('cartao')"   style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">💳 Cartão</button>
+          <button type="button" id="pgto-cartao"   onclick="setFormaPgto('cartao')"   style="padding:10px 6px;border:2px solid #e2e8f0;border-radius:8px;background:white;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;">💳 Crédito</button>
         </div>
         <input type="hidden" id="lanc-forma-pgto" value="dinheiro" />
       </div>
@@ -1037,6 +1037,33 @@
     </div>
     <!-- Tabela -->
     <div id="fatura-lista"></div>
+    <button class="btn-primary" style="width:100%;margin-top:14px;" onclick="abrirPagarFatura()">✅ Registrar pagamento desta fatura</button>
+  </div>
+</div>
+
+<!-- Modal Registrar Pagamento da Fatura -->
+<div id="modal-pagar-fatura" class="modal-overlay hidden" style="z-index:61;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Registrar pagamento</h3>
+      <button onclick="fecharModal('modal-pagar-fatura')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div id="pagar-fatura-info" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:14px;"></div>
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label>Conta de onde saiu o dinheiro <span style="color:#dc2626;">*</span></label>
+        <select id="pagar-fatura-conta"><option value="">Selecione a conta...</option></select>
+      </div>
+      <div>
+        <label>Data do pagamento <span style="color:#dc2626;">*</span></label>
+        <input type="date" id="pagar-fatura-data" />
+      </div>
+    </div>
+    <div style="font-size:12px;color:#94a3b8;margin-top:12px;">Isso registra a saída no Extrato da conta escolhida. Não conta como despesa nova — os gastos já foram lançados nas compras.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-pagar-fatura')">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarPagamentoFatura()">Confirmar pagamento</button>
+    </div>
   </div>
 </div>
 
@@ -2001,7 +2028,7 @@ async function renderizarLancamentos() {
     const corValor = isTransf ? '#7c3aed' : (l.tipo === 'receita' ? '#059669' : '#dc2626');
     const prefixoValor = isTransf ? '' : (l.tipo === 'receita' ? '+' : '-');
     const subInfo = isTransf
-      ? 'Transferência / Poupança'
+      ? (l.observacao === '__pgtofatura__' ? 'Pagamento de fatura' : 'Transferência / Poupança')
       : `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' • ' + l.favorecidos.nome : ''}${l.cartoes ? ' • ' + l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' • 🔁' : ''}`;
     html += `
       <div class="item-row" onclick="${isTransf ? '' : `editarLancamento('${l.id}')`}" style="cursor:${isTransf ? 'default' : 'pointer'};padding:12px 16px;${isTransf ? 'background:#faf5ff;' : ''}">
@@ -2171,6 +2198,7 @@ function setTipoLancamento(tipo) {
   document.getElementById('lanc-cartao-group').classList.add('hidden');
   document.getElementById('lanc-parcelas-group').classList.add('hidden');
   if (tipo === 'despesa') setFormaPgto('dinheiro');
+  else document.getElementById('lanc-conta-group').classList.remove('hidden'); // receita sempre usa conta
   popularSelectCategorias('lanc-categoria', tipo);
   // Se o rateio estiver ligado, reconstrói as linhas com as categorias do novo tipo
   if (rateioAtivo()) {
@@ -2199,6 +2227,12 @@ function setFormaPgto(forma) {
   document.getElementById('lanc-cartao-group').classList.toggle('hidden', !isCartao);
   // No rateio não há parcelamento (é à vista / data única)
   document.getElementById('lanc-parcelas-group').classList.toggle('hidden', !isCartao || rateioAtivo());
+  // No crédito a conta bancária não se aplica: limpa e esconde
+  const contaGroup = document.getElementById('lanc-conta-group');
+  if (contaGroup) {
+    if (isCartao) { document.getElementById('lanc-conta').value = ''; }
+    contaGroup.classList.toggle('hidden', isCartao);
+  }
   if (!isCartao) {
     document.getElementById('lanc-cartao').value = '';
     document.getElementById('lanc-parcelas').value = '1';
@@ -2418,7 +2452,7 @@ async function salvarLancamentoRateio() {
   const obs = document.getElementById('lanc-obs').value.trim() || null;
 
   if (!favId) { toast('Selecione o favorecido', 'erro'); return; }
-  if (!contaId) { toast('Selecione a conta', 'erro'); return; }
+  if (forma !== 'cartao' && !contaId) { toast('Selecione a conta', 'erro'); return; }
   if (!total) { toast('Informe o valor total', 'erro'); return; }
   if (!data) { toast('Informe a data', 'erro'); return; }
   if (forma === 'cartao' && !cartaoId) { toast('Selecione o cartão', 'erro'); return; }
@@ -2488,7 +2522,7 @@ async function salvarLancamento() {
   const catIdPrincipal = document.getElementById('lanc-categoria').value || null;
   const subGroupVisivel = !document.getElementById('lanc-subcategoria-group').classList.contains('hidden');
   if (!favId) { toast('Selecione o favorecido', 'erro'); return; }
-  if (!contaId) { toast('Selecione a conta', 'erro'); return; }
+  if (forma !== 'cartao' && !contaId) { toast('Selecione a conta', 'erro'); return; }
   if (!valor) { toast('Informe o valor', 'erro'); return; }
   if (!data) { toast('Informe a data', 'erro'); return; }
   if (!catIdPrincipal) { toast('Selecione a categoria', 'erro'); return; }
@@ -2840,7 +2874,7 @@ function renderizarTransacoesImportadas(transacoes) {
                 <option value="dinheiro" ${formaAuto==='dinheiro'?'selected':''}>💵 Dinheiro</option>
                 <option value="debito" ${formaAuto==='debito'?'selected':''}>💳 Débito</option>
                 <option value="pix" ${formaAuto==='pix'?'selected':''}>📱 PIX</option>
-                <option value="cartao" ${formaAuto==='cartao'?'selected':''}>💳 Cartão</option>
+                <option value="cartao" ${formaAuto==='cartao'?'selected':''}>💳 Crédito</option>
               </select>
             </div>
             <div style="margin-top:6px;">
@@ -4005,7 +4039,9 @@ async function renderizarExtrato(opts = {}) {
   extratoLancCache = lancamentos;
   const receitasMes = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
   const despesasMes = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
-  const saldoFinal = saldoAnteriorMes + receitasMes - despesasMes;
+  // Transferências (ex.: pagamento de fatura) saem da conta mas não são despesa de categoria
+  const transferenciasMes = lancamentos.filter(l => l.tipo === 'transferencia').reduce((s, l) => s + Number(l.valor), 0);
+  const saldoFinal = saldoAnteriorMes + receitasMes - despesasMes - transferenciasMes;
 
   // Conciliação: quantos lançamentos já foram conferidos contra o extrato
   const qtdTotal = lancamentos.length;
@@ -4083,11 +4119,15 @@ async function renderizarExtrato(opts = {}) {
           return;
         }
 
-        const icone = l.categorias?.icone || (isReceita ? '💰' : '💸');
+        const ehPgtoFatura = l.tipo === 'transferencia';
+        const icone = ehPgtoFatura ? '💳' : (l.categorias?.icone || (isReceita ? '💰' : '💸'));
         const conf = !!l.conciliado;
-        const sub = `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' · ' + l.favorecidos.nome : ''}${conf ? ' · conferido' : ''}`;
+        const sub = ehPgtoFatura
+          ? `Pagamento de fatura${conf ? ' · conferido' : ''}`
+          : `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' · ' + l.favorecidos.nome : ''}${conf ? ' · conferido' : ''}`;
+        const acaoClique = ehPgtoFatura ? `excluirPagamentoFatura('${l.id}')` : `editarLancamento('${l.id}')`;
         htmlLanc += `
-          <div class="item-row" onclick="editarLancamento('${l.id}')" style="cursor:pointer;padding:12px 16px;${conf ? 'background:#ecfdf5;' : ''}">
+          <div class="item-row" onclick="${acaoClique}" style="cursor:pointer;padding:12px 16px;${conf ? 'background:#ecfdf5;' : ''}">
             <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
               <button onclick="event.stopPropagation(); toggleConciliado('${l.id}', ${conf ? 'false' : 'true'})" title="${conf ? 'Desmarcar' : 'Marcar como conferido'}" style="border:none;background:none;cursor:pointer;padding:0;flex-shrink:0;">
                 <span style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;${conf ? 'background:#059669;color:white;' : 'border:1.5px solid #cbd5e1;color:transparent;'}">✓</span>
@@ -4368,6 +4408,50 @@ function abrirFaturaDetalhada(cartaoId) {
   carregarFaturaDetalhada();
 }
 
+function abrirPagarFatura() {
+  const ctx = window.faturaCtx;
+  if (!ctx || !ctx.total || ctx.total <= 0) { toast('Não há valor de fatura para pagar', 'erro'); return; }
+  document.getElementById('pagar-fatura-info').innerHTML =
+    `<div style="font-weight:600;">💳 ${ctx.cartaoNome}</div>
+     <div style="color:#64748b;">Fatura de ${meses[ctx.mes-1]} ${ctx.ano}</div>
+     <div style="margin-top:6px;font-size:18px;font-weight:700;color:#dc2626;">Total ${R$(ctx.total)}</div>`;
+  popularSelectContas('pagar-fatura-conta', extratoContaAtual || '');
+  document.getElementById('pagar-fatura-data').value = new Date().toISOString().split('T')[0];
+  abrirModal('modal-pagar-fatura');
+}
+
+async function confirmarPagamentoFatura() {
+  const ctx = window.faturaCtx;
+  if (!ctx) return;
+  const contaId = document.getElementById('pagar-fatura-conta').value || null;
+  const data = document.getElementById('pagar-fatura-data').value;
+  if (!contaId) { toast('Selecione a conta', 'erro'); return; }
+  if (!data) { toast('Informe a data do pagamento', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const desc = `Pagamento fatura ${ctx.cartaoNome} (${meses[ctx.mes-1]}/${ctx.ano})`;
+  const { error } = await sb.from('lancamentos').insert({
+    user_id: uid, descricao: desc, valor: ctx.total, data,
+    tipo: 'transferencia', conta_id: contaId, forma_pagamento: 'debito',
+    observacao: '__pgtofatura__'
+  });
+  if (error) { toast('Erro ao registrar pagamento: ' + error.message, 'erro'); return; }
+  toast('Pagamento registrado no Extrato!', 'ok');
+  fecharModal('modal-pagar-fatura');
+  fecharModal('modal-fatura');
+  if (paginaAtual === 'extrato') renderizarExtrato();
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+}
+
+async function excluirPagamentoFatura(id) {
+  if (!confirm('Excluir este pagamento de fatura? As compras lançadas não são afetadas.')) return;
+  await sb.from('lancamentos').delete().eq('id', id);
+  toast('Pagamento excluído', 'ok');
+  if (paginaAtual === 'extrato') renderizarExtrato();
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+}
+
 async function carregarFaturaDetalhada() {
   const cartaoId = document.getElementById('fatura-cartao-sel').value;
   const mes = parseInt(document.getElementById('fatura-mes-sel').value);
@@ -4390,6 +4474,8 @@ async function carregarFaturaDetalhada() {
   const lancamentos = data || [];
   const total = lancamentos.reduce((s, l) => s + Number(l.valor), 0);
   document.getElementById('fatura-total-val').textContent = R$(total);
+  const cartaoNome = cartoes.find(c => c.id === cartaoId)?.nome || 'Cartão';
+  window.faturaCtx = { cartaoId, cartaoNome, mes, ano, total };
 
   if (lancamentos.length === 0) {
     listaEl.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;">Nenhum lançamento neste mês.</div>`;
@@ -5018,7 +5104,7 @@ async function renderizarConfig() {
       ${recorrencias.length ? recorrencias.map(r => {
         const nome = r.favorecidos?.nome || r.categorias?.nome || 'Sem nome';
         const icone = r.categorias?.icone || '🔁';
-        const forma = r.forma_pagamento === 'cartao' ? (r.cartoes?.nome || 'Cartão') : r.forma_pagamento;
+        const forma = r.forma_pagamento === 'cartao' ? (r.cartoes?.nome || 'Crédito') : r.forma_pagamento;
         return `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9;">
           <div>
