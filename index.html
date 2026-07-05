@@ -204,6 +204,12 @@
           </select>
         </div>
       </div>
+      <div style="margin-bottom:10px;">
+        <label>Cartão</label>
+        <select id="filtro-cartao" onchange="renderizarLancamentos()">
+          <option value="">Todos</option>
+        </select>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
           <label>Subcategoria</label>
@@ -1958,6 +1964,9 @@ async function renderizarLancamentos() {
   const filtroForma = document.getElementById('filtro-forma')?.value;
   if (filtroForma) query = query.eq('forma_pagamento', filtroForma);
 
+  const filtroCartao = document.getElementById('filtro-cartao')?.value;
+  if (filtroCartao) query = query.eq('cartao_id', filtroCartao);
+
   const filtroFav = document.getElementById('filtro-favorecido')?.value;
   if (filtroFav) query = query.eq('favorecido_id', filtroFav);
 
@@ -2099,7 +2108,7 @@ function atualizarFiltroSubcategoria() {
 }
 
 function limparFiltros() {
-  const ids = ['filtro-periodo','filtro-tipo','filtro-forma','filtro-categoria','filtro-subcategoria','filtro-favorecido','filtro-busca','filtro-data-de','filtro-data-ate'];
+  const ids = ['filtro-periodo','filtro-tipo','filtro-forma','filtro-cartao','filtro-categoria','filtro-subcategoria','filtro-favorecido','filtro-busca','filtro-data-de','filtro-data-ate'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = id === 'filtro-periodo' ? 'mes' : '';
@@ -2349,6 +2358,20 @@ function popularSelectCartoes() {
   // Usa onchange (substitui listener anterior) em vez de addEventListener para evitar duplicatas
   document.getElementById('lanc-data').onchange = calcularFatura;
   document.getElementById('lanc-valor').oninput = atualizarPreviewValorParcela;
+
+  // Popula também o filtro de cartão do painel de lançamentos
+  const selFiltro = document.getElementById('filtro-cartao');
+  if (selFiltro) {
+    const atual = selFiltro.value;
+    selFiltro.innerHTML = '<option value="">Todos</option>';
+    cartoes.filter(c => c.ativo).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.nome;
+      selFiltro.appendChild(opt);
+    });
+    selFiltro.value = atual;
+  }
 }
 
 /* ===== RATEIO: dividir um lançamento em várias categorias ===== */
@@ -4218,6 +4241,19 @@ async function conciliarDia(idsStr, marcar) {
 async function carregarCartoes() {
   const { data } = await sb.from('cartoes').select('*').order('nome');
   cartoes = data || [];
+  // Mantém o filtro de cartão do painel de lançamentos sempre atualizado
+  const selFiltro = document.getElementById('filtro-cartao');
+  if (selFiltro) {
+    const atual = selFiltro.value;
+    selFiltro.innerHTML = '<option value="">Todos</option>';
+    cartoes.filter(c => c.ativo).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.nome;
+      selFiltro.appendChild(opt);
+    });
+    selFiltro.value = atual;
+  }
 }
 
 async function renderizarCartoes() {
