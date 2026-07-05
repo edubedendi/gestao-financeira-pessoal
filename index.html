@@ -778,6 +778,10 @@
         <input type="number" id="hol-horas_extras" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="flex:1;font-size:14px;margin:0;">🔥 Horas Extras c/ 100%</label>
+        <input type="number" id="hol-horas_extras_100" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
         <label style="flex:1;font-size:14px;margin:0;">🌙 DSR Reflexo</label>
         <input type="number" id="hol-dsr" placeholder="0,00" step="0.01" min="0" style="width:130px;" oninput="recalcularHolerite()" />
       </div>
@@ -4540,6 +4544,7 @@ async function excluirCartao() {
 const HOL_FIELDS = [
   { id: 'horas_normais', label: 'Horas Normais',        tipo: 'receita', icone: '💼', catNome: 'Horas normais',               grupo: 'provento' },
   { id: 'horas_extras',  label: 'Horas Extras c/ 50%',  tipo: 'receita', icone: '☀️', catNome: 'Horas extras c/ 50%',         grupo: 'provento' },
+  { id: 'horas_extras_100', label: 'Horas Extras c/ 100%', tipo: 'receita', icone: '🔥', catNome: 'Horas extras c/ 100%',    grupo: 'provento' },
   { id: 'dsr',           label: 'DSR Reflexo',           tipo: 'receita', icone: '🌙', catNome: 'DSR reflexo',                 grupo: 'provento' },
   { id: 'inss',          label: 'INSS',                  tipo: 'despesa', icone: '🏛️', catNome: 'INSS',                        grupo: 'fiscal'   },
   { id: 'irrf',          label: 'IRRF',                  tipo: 'despesa', icone: '📋', catNome: 'IRRF',                        grupo: 'fiscal'   },
