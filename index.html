@@ -549,6 +549,9 @@
       <button class="btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
       <button class="btn-primary" onclick="salvarLancamento()">Salvar</button>
     </div>
+    <div style="margin-top:12px;" id="lanc-btn-duplicar" class="hidden">
+      <button class="btn-secondary" style="width:100%;" onclick="duplicarLancamento()">📋 Duplicar (criar cópia)</button>
+    </div>
     <div style="margin-top:12px;" id="lanc-btn-excluir" class="hidden">
       <button class="btn-danger" style="width:100%;" onclick="excluirLancamento()">🗑 Excluir lançamento</button>
     </div>
@@ -2136,6 +2139,7 @@ function abrirModalLancamento() {
   document.getElementById('lanc-valor-preview').style.display = 'none';
   setTipoValorParcela('total');
   document.getElementById('lanc-btn-excluir').classList.add('hidden');
+  document.getElementById('lanc-btn-duplicar').classList.add('hidden');
   setTipoLancamento('despesa');
   popularSelectCartoes();
   popularSelectFavorecidos('lanc-favorecido');
@@ -2176,6 +2180,7 @@ async function editarLancamento(id) {
   document.getElementById('lanc-obs').style.display = obs ? 'block' : 'none';
   document.getElementById('lanc-obs-toggle').textContent = obs ? '− Remover nota' : '+ Adicionar nota';
   document.getElementById('lanc-btn-excluir').classList.remove('hidden');
+  document.getElementById('lanc-btn-duplicar').classList.remove('hidden');
   setTipoLancamento(l.tipo);
   popularSelectCategorias('lanc-categoria', l.tipo);
   if (l.categoria_id) {
@@ -2201,6 +2206,22 @@ async function editarLancamento(id) {
     calcularFatura();
   }
   abrirModal('modal-lancamento');
+}
+
+// Transforma o lançamento aberto em uma CÓPIA nova: mantém todos os campos
+// preenchidos, mas cria um novo registro ao salvar (não altera o original).
+function duplicarLancamento() {
+  lancamentoEditandoId = null;
+  document.getElementById('lanc-id').value = '';
+  document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento (cópia)';
+  document.getElementById('lanc-btn-excluir').classList.add('hidden');
+  document.getElementById('lanc-btn-duplicar').classList.add('hidden');
+  // Data padrão = hoje (é um novo lançamento); ajuste se precisar
+  document.getElementById('lanc-data').value = new Date().toISOString().split('T')[0];
+  // Se for cartão, recalcula a fatura com a nova data
+  const grupoCartao = document.getElementById('lanc-cartao-group');
+  if (grupoCartao && !grupoCartao.classList.contains('hidden')) calcularFatura();
+  toast('Cópia pronta — ajuste o que precisar e salve', 'ok');
 }
 
 function setTipoLancamento(tipo) {
