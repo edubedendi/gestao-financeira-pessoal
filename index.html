@@ -3104,8 +3104,8 @@ async function renderizarOrcamento() {
     .select('*, categorias(id,nome,icone,tipo,parent_id)').eq('mes', mesAtual).eq('ano', anoAtual);
 
   const [{ data: lancDesp }, { data: lancRec }] = await Promise.all([
-    sb.from('lancamentos').select('valor,categoria_id').eq('tipo','despesa').gte('data',dataInicio).lte('data',dataFim),
-    sb.from('lancamentos').select('valor,categoria_id').eq('tipo','receita').gte('data',dataInicio).lte('data',dataFim),
+    sb.from('lancamentos').select('valor,categoria_id,observacao').eq('tipo','despesa').gte('data',dataInicio).lte('data',dataFim),
+    sb.from('lancamentos').select('valor,categoria_id,observacao').eq('tipo','receita').gte('data',dataInicio).lte('data',dataFim),
   ]);
 
   if (!orc || orc.length === 0) {
@@ -3118,9 +3118,9 @@ async function renderizarOrcamento() {
   }
 
   const gastosPorCat = {};
-  (lancDesp || []).forEach(l => { gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancDesp || []).forEach(l => { if (l.observacao === '__hol__') return; gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor); });
   const receitasPorCat = {};
-  (lancRec || []).forEach(l => { receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancRec || []).forEach(l => { if (l.observacao === '__hol__') return; receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
   const orcDespesa = orc.filter(o => o.categorias?.tipo === 'despesa');
   const orcReceita = orc.filter(o => o.categorias?.tipo === 'receita');
