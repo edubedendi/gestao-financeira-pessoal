@@ -3339,8 +3339,8 @@ async function renderizarOrcamento() {
   // ── CARD RESUMO GERAL ─────────────────────────────────────
   const totalMetaRecGeral   = (orcReceita || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
   const totalPlanDespGeral  = (orcDespesa || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
-  const totalRealRecGeral   = (lancRec  || []).reduce((s, l) => s + Number(l.valor), 0);
-  const totalRealDespGeral  = (lancDesp || []).reduce((s, l) => s + Number(l.valor), 0);
+  const totalRealRecGeral   = (lancRec  || []).reduce((s, l) => l.observacao === '__hol__' ? s : s + Number(l.valor), 0);
+  const totalRealDespGeral  = (lancDesp || []).reduce((s, l) => l.observacao === '__hol__' ? s : s + Number(l.valor), 0);
   const saldoOrcado   = totalMetaRecGeral  - totalPlanDespGeral;
   const saldoRealizado = totalRealRecGeral - totalRealDespGeral;
 
