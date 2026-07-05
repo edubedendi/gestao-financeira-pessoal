@@ -549,6 +549,12 @@
       </div>
 
     </div>
+    <div id="lanc-parcela-grupo-opcao" class="hidden" style="margin-top:14px;background:#fef9c3;border-radius:8px;padding:10px 12px;">
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;margin:0;cursor:pointer;">
+        <input type="checkbox" id="lanc-aplicar-todas" style="width:auto;margin-top:2px;" />
+        <span>Aplicar em <b>todas as <span id="lanc-parcela-count"></span> parcelas</b> desta compra (ao salvar ou excluir). Desmarcado = só esta parcela.</span>
+      </label>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;" id="lanc-btns">
       <button class="btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
       <button class="btn-primary" onclick="salvarLancamento()">Salvar</button>
@@ -1125,6 +1131,7 @@ let grupos = [];
 let recorrencias = [];
 
 let lancamentoEditandoId = null;
+let parcelaGrupoEditando = null; // parcela_grupo_id do lançamento em edição (se for parcelado)
 let paginaAtual = 'dashboard';
 let appInicializado = false; // Guard contra múltiplas inicializações
 
@@ -2128,6 +2135,9 @@ function limparFiltros() {
 
 function abrirModalLancamento() {
   lancamentoEditandoId = null;
+  parcelaGrupoEditando = null;
+  document.getElementById('lanc-parcela-grupo-opcao').classList.add('hidden');
+  document.getElementById('lanc-aplicar-todas').checked = false;
   document.getElementById('lanc-id').value = '';
   document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento';
   document.getElementById('lanc-valor').value = '';
@@ -2173,6 +2183,16 @@ async function editarLancamento(id) {
   lancamentoEditandoId = id;
   document.getElementById('lanc-id').value = id;
   document.getElementById('modal-lancamento-titulo').textContent = 'Editar Lançamento';
+  // Opção de parcelado: aplicar em todas as parcelas
+  parcelaGrupoEditando = l.parcela_grupo_id || null;
+  const opcParc = document.getElementById('lanc-parcela-grupo-opcao');
+  document.getElementById('lanc-aplicar-todas').checked = false;
+  if (parcelaGrupoEditando) {
+    document.getElementById('lanc-parcela-count').textContent = l.total_parcelas || '';
+    opcParc.classList.remove('hidden');
+  } else {
+    opcParc.classList.add('hidden');
+  }
   // Rateio não se aplica na edição de um item já existente
   document.getElementById('lanc-rateio').checked = false;
   document.getElementById('lanc-rateio-toggle-group').classList.add('hidden');
@@ -2218,6 +2238,9 @@ async function editarLancamento(id) {
 // preenchidos, mas cria um novo registro ao salvar (não altera o original).
 function duplicarLancamento() {
   lancamentoEditandoId = null;
+  parcelaGrupoEditando = null;
+  document.getElementById('lanc-parcela-grupo-opcao').classList.add('hidden');
+  document.getElementById('lanc-aplicar-todas').checked = false;
   document.getElementById('lanc-id').value = '';
   document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento (cópia)';
   document.getElementById('lanc-btn-excluir').classList.add('hidden');
@@ -2590,9 +2613,17 @@ async function salvarLancamento() {
   const ehRecorrente = document.getElementById('lanc-recorrente').checked;
 
   if (id) {
-    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('id', id);
-    if (error) { toast('Erro ao salvar', 'erro'); return; }
-    toast('Lançamento atualizado!', 'ok');
+    const aplicarTodas = parcelaGrupoEditando && document.getElementById('lanc-aplicar-todas').checked;
+    if (aplicarTodas) {
+      // Atualiza todas as parcelas do grupo — mantém a data e o "(x/y)" de cada uma
+      const { error } = await sb.from('lancamentos').update({ valor, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('parcela_grupo_id', parcelaGrupoEditando);
+      if (error) { toast('Erro ao salvar', 'erro'); return; }
+      toast('Todas as parcelas foram atualizadas!', 'ok');
+    } else {
+      const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('id', id);
+      if (error) { toast('Erro ao salvar', 'erro'); return; }
+      toast('Lançamento atualizado!', 'ok');
+    }
   } else if (ehRecorrente) {
     // Cria a recorrência e já lança o mês atual
     const uid = (await sb.auth.getUser()).data.user.id;
@@ -2667,10 +2698,17 @@ async function salvarLancamento() {
 }
 
 async function excluirLancamento() {
-  if (!confirm('Excluir este lançamento?')) return;
   const id = document.getElementById('lanc-id').value;
-  await sb.from('lancamentos').delete().eq('id', id);
-  toast('Lançamento excluído', 'ok');
+  const aplicarTodas = parcelaGrupoEditando && document.getElementById('lanc-aplicar-todas').checked;
+  if (aplicarTodas) {
+    if (!confirm('Excluir TODAS as parcelas desta compra?')) return;
+    await sb.from('lancamentos').delete().eq('parcela_grupo_id', parcelaGrupoEditando);
+    toast('Todas as parcelas foram excluídas', 'ok');
+  } else {
+    if (!confirm(parcelaGrupoEditando ? 'Excluir apenas esta parcela?' : 'Excluir este lançamento?')) return;
+    await sb.from('lancamentos').delete().eq('id', id);
+    toast(parcelaGrupoEditando ? 'Parcela excluída' : 'Lançamento excluído', 'ok');
+  }
   fecharModal('modal-lancamento');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
