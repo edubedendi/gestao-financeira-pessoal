@@ -499,6 +499,10 @@
           <option value="">Selecione o cartão...</option>
         </select>
         <div id="lanc-fatura-aviso" style="font-size:12px;color:#6d28d9;margin-top:6px;background:#ede9fe;border-radius:6px;padding:6px 10px;display:none;"></div>
+        <div style="margin-top:10px;">
+          <label>Data da compra <span style="color:#94a3b8;font-weight:400;">(só registro, não afeta a fatura)</span></label>
+          <input type="date" id="lanc-data-compra" />
+        </div>
       </div>
 
       <!-- Parcelas: só aparece se forma = cartão -->
@@ -2128,6 +2132,7 @@ function abrirModalLancamento() {
   document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento';
   document.getElementById('lanc-valor').value = '';
   document.getElementById('lanc-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('lanc-data-compra').value = '';
   document.getElementById('lanc-obs').value = '';
   document.getElementById('lanc-obs').style.display = 'none';
   document.getElementById('lanc-obs-toggle').textContent = '+ Adicionar nota';
@@ -2205,6 +2210,7 @@ async function editarLancamento(id) {
     document.getElementById('lanc-cartao').value = l.cartao_id;
     calcularFatura();
   }
+  document.getElementById('lanc-data-compra').value = l.data_compra || '';
   abrirModal('modal-lancamento');
 }
 
@@ -2494,6 +2500,7 @@ async function salvarLancamentoRateio() {
   const total = parseFloat(document.getElementById('lanc-valor').value);
   const forma = document.getElementById('lanc-forma-pgto').value || 'dinheiro';
   const cartaoId = forma === 'cartao' ? (document.getElementById('lanc-cartao').value || null) : null;
+  const dataCompra = forma === 'cartao' ? (document.getElementById('lanc-data-compra').value || null) : null;
   const favId = document.getElementById('lanc-favorecido').value || null;
   const contaId = document.getElementById('lanc-conta')?.value || null;
   const grupoId = document.getElementById('lanc-grupo')?.value || null;
@@ -2532,7 +2539,7 @@ async function salvarLancamentoRateio() {
   const inserts = itens.map(it => ({
     user_id: uid, descricao: desc, valor: it.valor, data, tipo,
     categoria_id: it.categoria_id, favorecido_id: favId, cartao_id: cartaoId,
-    conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs,
+    conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra,
     rateio_grupo_id: rateioGrupoId
   }));
   const { error } = await sb.from('lancamentos').insert(inserts);
@@ -2556,6 +2563,7 @@ async function salvarLancamento() {
   const catId = subCatId || document.getElementById('lanc-categoria').value || null;
   const forma = document.getElementById('lanc-forma-pgto').value || 'dinheiro';
   const cartaoId = forma === 'cartao' ? (document.getElementById('lanc-cartao').value || null) : null;
+  const dataCompra = forma === 'cartao' ? (document.getElementById('lanc-data-compra').value || null) : null;
   const favId = document.getElementById('lanc-favorecido').value || null;
   const contaId = document.getElementById('lanc-conta')?.value || null;
   const grupoId = document.getElementById('lanc-grupo')?.value || null;
@@ -2582,7 +2590,7 @@ async function salvarLancamento() {
   const ehRecorrente = document.getElementById('lanc-recorrente').checked;
 
   if (id) {
-    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs }).eq('id', id);
+    const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('id', id);
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Lançamento atualizado!', 'ok');
   } else if (ehRecorrente) {
@@ -2598,7 +2606,7 @@ async function salvarLancamento() {
     await sb.from('lancamentos').insert({
       user_id: uid, descricao: desc, valor, data, tipo,
       categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId,
-      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, recorrencia_id: rec.id
+      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra, recorrencia_id: rec.id
     });
     await carregarRecorrencias();
     fecharModal('modal-lancamento');
@@ -2634,7 +2642,7 @@ async function salvarLancamento() {
         descricao: `${desc} (${i+1}/${parcelas})`,
         valor: valorParcela,
         data: dataParc,
-        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs,
+        tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra,
         parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: parcelaGrupoId
       });
     }
@@ -2644,7 +2652,7 @@ async function salvarLancamento() {
   } else {
     // Simples
     const uid = (await sb.auth.getUser()).data.user.id;
-    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs });
+    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra });
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     toast('Lançamento salvo!', 'ok');
   }
