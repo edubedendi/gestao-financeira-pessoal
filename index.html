@@ -3034,8 +3034,9 @@ async function confirmarImportacao(total) {
 function popularSelectCategoriasOrcamento() {
   const sel = document.getElementById('orc-categoria');
   sel.innerHTML = '<option value="">Selecione...</option>';
+  const holIds = idsCategoriasHolerite();
   ['despesa', 'receita'].forEach(tipo => {
-    const cats = categorias.filter(c => !c.parent_id && c.tipo === tipo);
+    const cats = categorias.filter(c => !c.parent_id && c.tipo === tipo && !holIds.has(c.id));
     if (cats.length === 0) return;
     const grp = document.createElement('optgroup');
     grp.label = tipo === 'despesa' ? '📉 Despesas' : '📈 Receitas';
@@ -3093,6 +3094,13 @@ function montarGruposOrcamento(orcLista) {
   return grupos;
 }
 
+// IDs das categorias usadas pelo holerite (identificadas pelo nome em HOL_FIELDS).
+// Servem para nunca aparecerem no Orçamento — são apenas referência.
+function idsCategoriasHolerite() {
+  const nomes = new Set(HOL_FIELDS.map(f => (f.catNome || '').toLowerCase().trim()));
+  return new Set((categorias || []).filter(c => nomes.has((c.nome || '').toLowerCase().trim())).map(c => c.id));
+}
+
 async function renderizarOrcamento() {
   const el = document.getElementById('orcamento-content');
   el.innerHTML = '<div class="spinner"></div>';
@@ -3108,7 +3116,11 @@ async function renderizarOrcamento() {
     sb.from('lancamentos').select('valor,categoria_id,observacao').eq('tipo','receita').gte('data',dataInicio).lte('data',dataFim),
   ]);
 
-  if (!orc || orc.length === 0) {
+  // Remove categorias do holerite: são só referência, não entram no orçamento
+  const holIds = idsCategoriasHolerite();
+  const orcVisivel = (orc || []).filter(o => !holIds.has(o.categoria_id));
+
+  if (orcVisivel.length === 0) {
     el.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
       <div style="font-size:40px;margin-bottom:12px;">📊</div>
       <div>Nenhum orçamento definido para este mês.</div>
@@ -3122,8 +3134,8 @@ async function renderizarOrcamento() {
   const receitasPorCat = {};
   (lancRec || []).forEach(l => { if (l.observacao === '__hol__') return; receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
-  const orcDespesa = orc.filter(o => o.categorias?.tipo === 'despesa');
-  const orcReceita = orc.filter(o => o.categorias?.tipo === 'receita');
+  const orcDespesa = orcVisivel.filter(o => o.categorias?.tipo === 'despesa');
+  const orcReceita = orcVisivel.filter(o => o.categorias?.tipo === 'receita');
 
   let html = '';
 
@@ -3136,7 +3148,7 @@ async function renderizarOrcamento() {
 
     gruposRec.forEach(({ pai, catPaiInfo, subs }) => {
       const parentCatId = pai?.categoria_id || catPaiInfo?.id;
-      const todasSubsRec = categorias.filter(c => c.parent_id === parentCatId);
+      const todasSubsRec = categorias.filter(c => c.parent_id === parentCatId && !holIds.has(c.id));
       const subsOrcMapRec = {};
       subs.forEach(s => { subsOrcMapRec[s.categoria_id] = s; });
       const subsUnificadasRec = [];
@@ -3239,7 +3251,7 @@ async function renderizarOrcamento() {
       const parentCatId = pai?.categoria_id || catPaiInfo?.id;
 
       // Todas as subcategorias reais desta categoria pai
-      const todasSubs = categorias.filter(c => c.parent_id === parentCatId);
+      const todasSubs = categorias.filter(c => c.parent_id === parentCatId && !holIds.has(c.id));
 
       // Monta lista unificada: subcategorias com orçamento + subcategorias com gasto mas sem orçamento
       const subsOrcMap = {};
@@ -3384,7 +3396,8 @@ function atualizarSubcategoriasOrcamento() {
   const subGroup = document.getElementById('orc-subcategoria-group');
   const subSel = document.getElementById('orc-subcategoria');
   if (!catId) { subGroup.classList.add('hidden'); return; }
-  const subs = categorias.filter(c => c.parent_id === catId);
+  const holIds = idsCategoriasHolerite();
+  const subs = categorias.filter(c => c.parent_id === catId && !holIds.has(c.id));
   if (subs.length === 0) { subGroup.classList.add('hidden'); return; }
   subSel.innerHTML = '<option value="">Nenhuma (orçar a categoria toda)</option>';
   subs.forEach(c => {
