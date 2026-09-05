@@ -254,7 +254,8 @@
   <div id="page-cartoes" class="page">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Cartões</h2>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button style="width:auto;padding:8px 14px;background:#ede9fe;color:#4f46e5;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;" onclick="abrirConsolidadoCartoes()">📋 Consolidado</button>
         <button style="width:auto;padding:8px 14px;background:#ede9fe;color:#4f46e5;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;" onclick="abrirEvolucaoAnual()">📊 Evolução</button>
         <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalCartao()">+ Cartão</button>
       </div>
@@ -1059,6 +1060,28 @@
       <input type="number" id="evolucao-ano" value="2026" min="2020" max="2099" style="width:80px;padding:6px 10px;font-size:14px;" onchange="carregarEvolucaoAnual()" />
     </div>
     <div id="evolucao-content"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Modal Consolidado de Cartões (período, detalhado por cartão e mês) -->
+<div id="modal-consolidado" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:98vw;max-height:90vh;overflow-y:auto;padding:20px 16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:17px;font-weight:700;">📋 Consolidado de Cartões</h3>
+      <button onclick="fecharModal('modal-consolidado')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <p style="font-size:12px;color:#94a3b8;margin:0 0 12px;">Tudo que você deve nos cartões no período, detalhado por cartão e mês.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+      <div>
+        <label>De</label>
+        <input type="month" id="consol-de" onchange="carregarConsolidadoCartoes()" />
+      </div>
+      <div>
+        <label>Até</label>
+        <input type="month" id="consol-ate" onchange="carregarConsolidadoCartoes()" />
+      </div>
+    </div>
+    <div id="consolidado-content"><div class="spinner"></div></div>
   </div>
 </div>
 
@@ -4786,6 +4809,140 @@ async function carregarFaturaDetalhada() {
       <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;text-align:right;">Valor</div>
     </div>
     ${rows}`;
+}
+
+// ============================================================
+// CONSOLIDADO DE CARTÕES (período, detalhado por cartão e mês)
+// ============================================================
+function abrirConsolidadoCartoes() {
+  // Padrão: do mês atual até 3 meses à frente (janela de faturas em aberto)
+  const ini = `${anoAtual}-${String(mesAtual).padStart(2,'0')}`;
+  let mF = mesAtual + 3, aF = anoAtual;
+  while (mF > 12) { mF -= 12; aF++; }
+  const fim = `${aF}-${String(mF).padStart(2,'0')}`;
+  document.getElementById('consol-de').value = ini;
+  document.getElementById('consol-ate').value = fim;
+  abrirModal('modal-consolidado');
+  carregarConsolidadoCartoes();
+}
+
+async function carregarConsolidadoCartoes() {
+  const el = document.getElementById('consolidado-content');
+  el.innerHTML = '<div class="spinner"></div>';
+
+  const deVal = document.getElementById('consol-de').value;   // AAAA-MM
+  const ateVal = document.getElementById('consol-ate').value; // AAAA-MM
+  if (!deVal || !ateVal) { el.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8;">Selecione o período.</div>'; return; }
+
+  let [aDe, mDe] = deVal.split('-').map(Number);
+  let [aAte, mAte] = ateVal.split('-').map(Number);
+  // Garante ordem correta (se o usuário inverter, troca)
+  if (aDe > aAte || (aDe === aAte && mDe > mAte)) { [aDe, mDe, aAte, mAte] = [aAte, mAte, aDe, mDe]; }
+
+  const dataIni = `${aDe}-${String(mDe).padStart(2,'0')}-01`;
+  const dataFim = `${aAte}-${String(mAte).padStart(2,'0')}-${String(ultimoDiaDoMes(aAte, mAte)).padStart(2,'0')}`;
+
+  await carregarCartoes();
+
+  const { data } = await sb.from('lancamentos')
+    .select('*, categorias(nome, parent_id), favorecidos(nome)')
+    .eq('tipo', 'despesa')
+    .not('cartao_id', 'is', null)
+    .gte('data', dataIni)
+    .lte('data', dataFim)
+    .order('data', { ascending: true });
+
+  const lancamentos = data || [];
+
+  if (lancamentos.length === 0) {
+    el.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;">Nenhuma compra de cartão neste período.</div>`;
+    return;
+  }
+
+  const catMap = {};
+  categorias.forEach(c => { catMap[c.id] = c; });
+  const nomesMeses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // Agrupa: cartão -> mesChave (AAAA-MM) -> lista de lançamentos
+  const porCartao = {};
+  lancamentos.forEach(l => {
+    const cid = l.cartao_id;
+    const mesChave = l.data.slice(0, 7);
+    if (!porCartao[cid]) porCartao[cid] = {};
+    if (!porCartao[cid][mesChave]) porCartao[cid][mesChave] = [];
+    porCartao[cid][mesChave].push(l);
+  });
+
+  const linhaItem = (l) => {
+    const cat = catMap[l.categoria_id];
+    let catNome = '', subNome = '';
+    if (cat) {
+      if (cat.parent_id) { subNome = cat.nome; catNome = catMap[cat.parent_id]?.nome || ''; }
+      else { catNome = cat.nome; }
+    }
+    const fav = l.favorecidos?.nome || '—';
+    const parcInfo = l.total_parcelas > 1 ? ` (${l.parcela_atual}/${l.total_parcelas})` : '';
+    return `
+      <div style="display:grid;grid-template-columns:1.3fr 1fr auto;gap:6px;align-items:start;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#374151;">${catNome || 'Sem categoria'}</div>
+          ${subNome ? `<div style="font-size:11px;color:#94a3b8;">↳ ${subNome}</div>` : ''}
+        </div>
+        <div style="font-size:13px;color:#374151;">${fav}${parcInfo}</div>
+        <div style="font-size:14px;font-weight:700;color:#dc2626;text-align:right;white-space:nowrap;">${R$(l.valor)}</div>
+      </div>`;
+  };
+
+  let totalGeral = 0;
+  let html = '';
+
+  // Ordena cartões pelo nome, mantendo só os que têm lançamento no período
+  const cartoesComGasto = cartoes.filter(c => porCartao[c.id]).sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  // Inclui também cartões que possam ter sido excluídos mas ainda têm lançamentos
+  Object.keys(porCartao).forEach(cid => {
+    if (!cartoesComGasto.find(c => c.id === cid)) {
+      cartoesComGasto.push({ id: cid, nome: 'Cartão removido' });
+    }
+  });
+
+  cartoesComGasto.forEach(c => {
+    const meses = porCartao[c.id];
+    if (!meses) return;
+    const totalCartao = Object.values(meses).flat().reduce((s, l) => s + Number(l.valor), 0);
+    totalGeral += totalCartao;
+
+    html += `<div class="card" style="padding:0;margin-bottom:14px;overflow:hidden;">
+      <div style="background:#4f46e5;color:white;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-weight:700;font-size:15px;">💳 ${c.nome}</span>
+        <span style="font-weight:700;font-size:15px;">${R$(totalCartao)}</span>
+      </div>`;
+
+    // Ordena os meses cronologicamente
+    Object.keys(meses).sort().forEach(mesChave => {
+      const [anoM, mesM] = mesChave.split('-').map(Number);
+      const itens = meses[mesChave];
+      const totalMes = itens.reduce((s, l) => s + Number(l.valor), 0);
+      html += `<div style="padding:10px 16px 4px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-size:12px;font-weight:700;color:#4f46e5;text-transform:uppercase;letter-spacing:.5px;">${nomesMeses[mesM-1]} ${anoM}</span>
+          <span style="font-size:13px;font-weight:700;color:#dc2626;">${R$(totalMes)}</span>
+        </div>
+        ${itens.map(linhaItem).join('')}
+      </div>`;
+    });
+
+    html += `</div>`;
+  });
+
+  // Total geral do período
+  html = `<div class="card" style="padding:14px 16px;margin-bottom:14px;background:#fff1f2;border-left:4px solid #dc2626;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:13px;color:#64748b;font-weight:600;">TOTAL DE TODOS OS CARTÕES NO PERÍODO</span>
+        <span style="font-size:20px;font-weight:700;color:#dc2626;">${R$(totalGeral)}</span>
+      </div>
+    </div>` + html;
+
+  el.innerHTML = html;
 }
 
 async function excluirCartao() {
