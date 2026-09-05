@@ -4911,7 +4911,8 @@ async function carregarConsolidadoCartoes() {
   lancamentos.forEach(l => {
     const cid = l.cartao_id;
     if (!porCartao[cid]) porCartao[cid] = {};
-    const compraKey = l.parcela_grupo_id || l.id;
+    // Agrupa por: parcelamento, OU recorrência (Netflix, seguros mensais), OU o próprio id (avulsa)
+    const compraKey = l.parcela_grupo_id || (l.recorrencia_id ? 'rec-' + l.recorrencia_id : l.id);
     if (!porCartao[cid][compraKey]) {
       const cat = catMap[l.categoria_id];
       let catNome = '', subNome = '';
@@ -4924,6 +4925,7 @@ async function carregarConsolidadoCartoes() {
         subNome,
         fav: l.favorecidos?.nome || '—',
         totalParcelas: l.total_parcelas > 1 ? l.total_parcelas : 1,
+        ehRecorrente: !!l.recorrencia_id,   // custo mensal fixo (recorrência)
         parcelasNoPeriodo: 0,   // quantas parcelas desta compra caem no período mostrado
         porMes: {},   // chave AAAA-MM -> valor somado naquele mês
       };
@@ -4980,7 +4982,7 @@ async function carregarConsolidadoCartoes() {
       return `<tr>
         ${cel(ln.catNome, 'font-weight:600;color:#374151;')}
         ${cel(ln.subNome ? '↳ ' + ln.subNome : '—', 'color:#64748b;')}
-        ${cel(ln.totalParcelas > 1 ? ln.parcelasNoPeriodo + '/' + ln.totalParcelas : 'à vista', 'text-align:center;color:#64748b;white-space:nowrap;')}
+        ${cel(ln.ehRecorrente ? '🔁 mensal' : (ln.totalParcelas > 1 ? ln.parcelasNoPeriodo + '/' + ln.totalParcelas : 'à vista'), 'text-align:center;color:#64748b;white-space:nowrap;')}
         ${cel(ln.fav, 'color:#374151;')}
         <td style="padding:7px 8px;font-size:12px;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;font-weight:700;color:#1e293b;">${R$(valorTotalLinha)}</td>
         ${celsMes}
