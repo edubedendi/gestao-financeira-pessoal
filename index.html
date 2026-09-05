@@ -1071,7 +1071,7 @@
       <button onclick="fecharModal('modal-consolidado')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
     <p style="font-size:12px;color:#94a3b8;margin:0 0 12px;">Tudo que você deve nos cartões no período, detalhado por cartão e mês.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div>
         <label>De</label>
         <input type="month" id="consol-de" onchange="carregarConsolidadoCartoes()" />
@@ -1079,6 +1079,14 @@
       <div>
         <label>Até</label>
         <input type="month" id="consol-ate" onchange="carregarConsolidadoCartoes()" />
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;">
+      <span style="font-size:12px;color:#64748b;">Ajustar fim do período:</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button onclick="ajustarFimConsolidado(-1)" title="Remover o último mês" style="width:32px;height:32px;border:1px solid #e2e8f0;background:white;border-radius:8px;font-size:18px;font-weight:700;color:#4f46e5;cursor:pointer;line-height:1;">−</button>
+        <span id="consol-qtd-meses" style="font-size:12px;color:#374151;min-width:70px;text-align:center;"></span>
+        <button onclick="ajustarFimConsolidado(1)" title="Adicionar o mês seguinte" style="width:32px;height:32px;border:1px solid #e2e8f0;background:white;border-radius:8px;font-size:18px;font-weight:700;color:#4f46e5;cursor:pointer;line-height:1;">+</button>
       </div>
     </div>
     <div id="consolidado-content"><div class="spinner"></div></div>
@@ -4826,6 +4834,22 @@ function abrirConsolidadoCartoes() {
   carregarConsolidadoCartoes();
 }
 
+// Estica (+1) ou encolhe (-1) o fim do período em um mês
+function ajustarFimConsolidado(delta) {
+  const ate = document.getElementById('consol-ate').value;
+  const de = document.getElementById('consol-de').value;
+  if (!ate || !de) return;
+  let [a, m] = ate.split('-').map(Number);
+  m += delta;
+  while (m > 12) { m -= 12; a++; }
+  while (m < 1)  { m += 12; a--; }
+  const novoAte = `${a}-${String(m).padStart(2,'0')}`;
+  // Não deixa o fim ficar antes do início
+  if (novoAte < de) { toast('O período não pode ter menos de 1 mês', 'erro'); return; }
+  document.getElementById('consol-ate').value = novoAte;
+  carregarConsolidadoCartoes();
+}
+
 async function carregarConsolidadoCartoes() {
   const el = document.getElementById('consolidado-content');
   el.innerHTML = '<div class="spinner"></div>';
@@ -4876,6 +4900,9 @@ async function carregarConsolidadoCartoes() {
     const [a, m] = chave.split('-').map(Number);
     return `${nomesMeses[m-1]}/${String(a).slice(2)}`;
   };
+  // Atualiza o rótulo de quantos meses o período tem
+  const lblQtd = document.getElementById('consol-qtd-meses');
+  if (lblQtd) lblQtd.textContent = colunas.length + (colunas.length === 1 ? ' mês' : ' meses');
 
   // Agrupa lançamentos por cartão e, dentro do cartão, por compra.
   // Uma "compra" = parcela_grupo_id (parceladas) ou o próprio id (à vista).
@@ -4897,12 +4924,14 @@ async function carregarConsolidadoCartoes() {
         subNome,
         fav: l.favorecidos?.nome || '—',
         totalParcelas: l.total_parcelas > 1 ? l.total_parcelas : 1,
+        parcelasNoPeriodo: 0,   // quantas parcelas desta compra caem no período mostrado
         porMes: {},   // chave AAAA-MM -> valor somado naquele mês
       };
     }
     const linha = porCartao[cid][compraKey];
     const mesChave = l.data.slice(0, 7);
     linha.porMes[mesChave] = (linha.porMes[mesChave] || 0) + Number(l.valor);
+    linha.parcelasNoPeriodo += 1;   // cada lançamento no período = 1 parcela visível
     // Mantém o maior total de parcelas visto (protege contra dados irregulares)
     if (l.total_parcelas > linha.totalParcelas) linha.totalParcelas = l.total_parcelas;
   });
@@ -4951,7 +4980,7 @@ async function carregarConsolidadoCartoes() {
       return `<tr>
         ${cel(ln.catNome, 'font-weight:600;color:#374151;')}
         ${cel(ln.subNome ? '↳ ' + ln.subNome : '—', 'color:#64748b;')}
-        ${cel(ln.totalParcelas > 1 ? ln.totalParcelas + 'x' : 'à vista', 'text-align:center;color:#64748b;white-space:nowrap;')}
+        ${cel(ln.totalParcelas > 1 ? ln.parcelasNoPeriodo + '/' + ln.totalParcelas : 'à vista', 'text-align:center;color:#64748b;white-space:nowrap;')}
         ${cel(ln.fav, 'color:#374151;')}
         <td style="padding:7px 8px;font-size:12px;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;font-weight:700;color:#1e293b;">${R$(valorTotalLinha)}</td>
         ${celsMes}
