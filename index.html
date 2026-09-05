@@ -950,6 +950,42 @@
   </div>
 </div>
 
+<!-- Modal Cancelar Recorrência (escolher a partir de qual mês) -->
+<div id="modal-cancelar-recorrencia" class="modal-overlay hidden" style="z-index:61;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Cancelar recorrência</h3>
+      <button onclick="fecharModal('modal-cancelar-recorrencia')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <input type="hidden" id="cancrec-id" />
+    <div id="cancrec-nome" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:14px;"></div>
+    <p style="font-size:14px;color:#64748b;margin:0 0 12px;">A partir de qual mês os lançamentos futuros devem ser excluídos? Os meses anteriores são preservados.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+      <div>
+        <label>Mês</label>
+        <select id="cancrec-mes">
+          <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+          <option value="3">Março</option><option value="4">Abril</option>
+          <option value="5">Maio</option><option value="6">Junho</option>
+          <option value="7">Julho</option><option value="8">Agosto</option>
+          <option value="9">Setembro</option><option value="10">Outubro</option>
+          <option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+      </div>
+      <div>
+        <label>Ano</label>
+        <input type="number" id="cancrec-ano" min="2020" max="2050" />
+      </div>
+    </div>
+    <button class="btn-secondary btn-sm" style="width:100%;margin-bottom:14px;" onclick="previewCancelarRecorrencia()">🔍 Ver o que será excluído</button>
+    <div id="cancrec-preview" class="hidden" style="margin-bottom:14px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-cancelar-recorrencia')">Voltar</button>
+      <button class="btn-danger" id="cancrec-confirmar" style="opacity:0.5;pointer-events:none;" onclick="confirmarCancelarRecorrencia()">Excluir e encerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Categoria / Subcategoria -->
 <div id="modal-categoria" class="modal-overlay hidden" style="z-index:60;">
   <div class="modal-box">
@@ -1650,12 +1686,121 @@ function toggleRecorrente() {
   // Sem efeito visual extra — o checkbox faz tudo
 }
 
+// Abre o modal de cancelamento e pré-seleciona o mês/ano atuais como ponto de corte
 async function desativarRecorrencia(id) {
-  if (!confirm('Cancelar esta cobrança recorrente? Os lançamentos já criados não serão apagados.')) return;
-  await sb.from('recorrencias').update({ ativa: false }).eq('id', id);
+  const rec = recorrencias.find(r => r.id === id);
+  document.getElementById('cancrec-id').value = id;
+  const nome = rec ? (rec.favorecidos?.nome || rec.categorias?.nome || 'Recorrência') : 'Recorrência';
+  const icone = rec?.categorias?.icone || '🔁';
+  const valor = rec ? Number(rec.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '';
+  document.getElementById('cancrec-nome').innerHTML =
+    `<div style="font-weight:600;">${icone} ${nome}</div>` +
+    (rec ? `<div style="color:#64748b;font-size:12px;margin-top:2px;">R$ ${valor} • dia ${rec.dia_do_mes}</div>` : '');
+  document.getElementById('cancrec-mes').value = mesAtual;
+  document.getElementById('cancrec-ano').value = anoAtual;
+  // Reseta o preview e desabilita o botão até o usuário conferir
+  const prev = document.getElementById('cancrec-preview');
+  prev.classList.add('hidden');
+  prev.innerHTML = '';
+  const btn = document.getElementById('cancrec-confirmar');
+  btn.style.opacity = '0.5';
+  btn.style.pointerEvents = 'none';
+  window._cancrecDados = null;
+  abrirModal('modal-cancelar-recorrencia');
+}
+
+// Primeiro dia do mês/ano escolhido, no formato AAAA-MM-01
+function _cancrecDataCorte() {
+  const mes = parseInt(document.getElementById('cancrec-mes').value);
+  const ano = parseInt(document.getElementById('cancrec-ano').value);
+  return `${ano}-${String(mes).padStart(2, '0')}-01`;
+}
+
+// Busca (sem apagar nada) os lançamentos dessa recorrência a partir do corte e mostra a lista
+async function previewCancelarRecorrencia() {
+  const id = document.getElementById('cancrec-id').value;
+  const corte = _cancrecDataCorte();
+  const prev = document.getElementById('cancrec-preview');
+  prev.classList.remove('hidden');
+  prev.innerHTML = '<div class="spinner" style="margin:16px auto;"></div>';
+
+  const { data, error } = await sb.from('lancamentos')
+    .select('id, data, descricao, valor, conciliado')
+    .eq('recorrencia_id', id)
+    .gte('data', corte)
+    .order('data', { ascending: true });
+
+  if (error) { prev.innerHTML = `<div style="color:#dc2626;font-size:13px;">Erro ao consultar: ${error.message}</div>`; return; }
+
+  const todos = data || [];
+  // Salvaguarda: nunca excluir o que já foi conferido contra o extrato
+  const excluir = todos.filter(l => !l.conciliado);
+  const protegidos = todos.filter(l => l.conciliado);
+
+  // Guarda os ids a excluir para o confirmar usar
+  window._cancrecDados = { ids: excluir.map(l => l.id) };
+
+  const btn = document.getElementById('cancrec-confirmar');
+
+  if (todos.length === 0) {
+    prev.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:#166534;">Nenhum lançamento futuro a partir desse mês. A recorrência será apenas encerrada.</div>`;
+    // Ainda assim permite encerrar a regra
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+    return;
+  }
+
+  const fmt = d => d.split('-').reverse().join('/');
+  let html = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;">
+    <div style="font-weight:700;font-size:14px;color:#991b1b;margin-bottom:8px;">${excluir.length} lançamento(s) serão excluídos:</div>
+    <div style="max-height:150px;overflow-y:auto;">`;
+  excluir.forEach(l => {
+    html += `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #fee2e2;">
+      <span style="color:#374151;">${fmt(l.data)} · ${l.descricao}</span>
+      <span style="font-weight:600;color:#dc2626;white-space:nowrap;margin-left:8px;">${R$(l.valor)}</span>
+    </div>`;
+  });
+  html += `</div>`;
+  if (protegidos.length > 0) {
+    html += `<div style="margin-top:10px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px;">
+      ⚠️ ${protegidos.length} lançamento(s) desse período já estão conferidos (conciliados) e serão <b>mantidos</b>.
+    </div>`;
+  }
+  html += `</div>`;
+  prev.innerHTML = html;
+
+  btn.style.opacity = '1';
+  btn.style.pointerEvents = 'auto';
+}
+
+// Executa: apaga os lançamentos futuros não-conciliados e encerra a recorrência
+async function confirmarCancelarRecorrencia() {
+  const id = document.getElementById('cancrec-id').value;
+  const dados = window._cancrecDados;
+  if (!dados) { toast('Toque em "Ver o que será excluído" primeiro', 'erro'); return; }
+
+  const qtd = dados.ids.length;
+  const msg = qtd > 0
+    ? `Excluir ${qtd} lançamento(s) futuro(s) e encerrar a recorrência?`
+    : 'Encerrar a recorrência? (nenhum lançamento será excluído)';
+  if (!confirm(msg)) return;
+
+  if (qtd > 0) {
+    const { error: errDel } = await sb.from('lancamentos').delete().in('id', dados.ids);
+    if (errDel) { toast('Erro ao excluir lançamentos: ' + errDel.message, 'erro'); return; }
+  }
+
+  const { error: errRec } = await sb.from('recorrencias').update({ ativa: false }).eq('id', id);
+  if (errRec) { toast('Lançamentos excluídos, mas houve erro ao encerrar a recorrência.', 'erro'); return; }
+
   await carregarRecorrencias();
-  toast('Recorrência cancelada', 'ok');
+  window._cancrecDados = null;
+  fecharModal('modal-cancelar-recorrencia');
+  toast(qtd > 0 ? `${qtd} lançamento(s) excluído(s) e recorrência encerrada` : 'Recorrência encerrada', 'ok');
   renderizarConfig();
+  // Atualiza a tela de lançamentos se estiver visível
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
 }
 
 function popularSelectCategorias(selectId, tipo = null) {
