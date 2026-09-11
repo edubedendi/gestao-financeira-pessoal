@@ -566,6 +566,9 @@
     <div style="margin-top:12px;" id="lanc-btn-excluir" class="hidden">
       <button class="btn-danger" style="width:100%;" onclick="excluirLancamento()">🗑 Excluir lançamento</button>
     </div>
+    <div style="margin-top:8px;" id="lanc-btn-excluir-daqui" class="hidden">
+      <button class="btn-danger" style="width:100%;background:#fef2f2;" onclick="abrirExcluirParcelasDaqui()">🗑 Excluir esta e as próximas parcelas</button>
+    </div>
 
     <!-- Importar Extrato -->
     <div class="divider">ou</div>
@@ -951,6 +954,22 @@
   </div>
 </div>
 
+<!-- Modal Excluir Parcelas a partir de uma parcela -->
+<div id="modal-excluir-parcelas" class="modal-overlay hidden" style="z-index:61;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;">Excluir parcelas</h3>
+      <button onclick="fecharModal('modal-excluir-parcelas')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <p style="font-size:14px;color:#64748b;margin:0 0 12px;">Serão excluídas esta parcela e todas as seguintes (a partir da data desta parcela). As anteriores são preservadas.</p>
+    <div id="excpar-preview" style="margin-bottom:14px;"><div class="spinner" style="margin:16px auto;"></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-excluir-parcelas')">Voltar</button>
+      <button class="btn-danger" id="excpar-confirmar" style="opacity:0.5;pointer-events:none;" onclick="confirmarExcluirParcelasDaqui()">Excluir parcelas</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Cancelar Recorrência (escolher a partir de qual mês) -->
 <div id="modal-cancelar-recorrencia" class="modal-overlay hidden" style="z-index:61;">
   <div class="modal-box">
@@ -1199,6 +1218,7 @@ let recorrencias = [];
 
 let lancamentoEditandoId = null;
 let parcelaGrupoEditando = null; // parcela_grupo_id do lançamento em edição (se for parcelado)
+let parcelaDataEditando = null;  // data (AAAA-MM-DD) da parcela em edição — ponto de corte para "excluir daqui em diante"
 let paginaAtual = 'dashboard';
 let appInicializado = false; // Guard contra múltiplas inicializações
 
@@ -2330,6 +2350,7 @@ function abrirModalLancamento() {
   document.getElementById('lanc-valor-preview').style.display = 'none';
   setTipoValorParcela('total');
   document.getElementById('lanc-btn-excluir').classList.add('hidden');
+  document.getElementById('lanc-btn-excluir-daqui').classList.add('hidden');
   document.getElementById('lanc-btn-duplicar').classList.add('hidden');
   setTipoLancamento('despesa');
   popularSelectCartoes();
@@ -2363,11 +2384,14 @@ async function editarLancamento(id) {
   parcelaGrupoEditando = l.parcela_grupo_id || null;
   const opcParc = document.getElementById('lanc-parcela-grupo-opcao');
   document.getElementById('lanc-aplicar-todas').checked = false;
+  parcelaDataEditando = l.data || null;
   if (parcelaGrupoEditando) {
     document.getElementById('lanc-parcela-count').textContent = l.total_parcelas || '';
     opcParc.classList.remove('hidden');
+    document.getElementById('lanc-btn-excluir-daqui').classList.remove('hidden');
   } else {
     opcParc.classList.add('hidden');
+    document.getElementById('lanc-btn-excluir-daqui').classList.add('hidden');
   }
   // Rateio não se aplica na edição de um item já existente
   document.getElementById('lanc-rateio').checked = false;
@@ -2420,6 +2444,7 @@ function duplicarLancamento() {
   document.getElementById('lanc-id').value = '';
   document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento (cópia)';
   document.getElementById('lanc-btn-excluir').classList.add('hidden');
+  document.getElementById('lanc-btn-excluir-daqui').classList.add('hidden');
   document.getElementById('lanc-btn-duplicar').classList.add('hidden');
   // Data padrão = hoje (é um novo lançamento); ajuste se precisar
   document.getElementById('lanc-data').value = new Date().toISOString().split('T')[0];
@@ -2865,6 +2890,80 @@ async function salvarLancamento() {
   }
 
   fecharModal('modal-lancamento');
+  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
+  if (paginaAtual === 'orcamento') renderizarOrcamento();
+  if (paginaAtual === 'cartoes') renderizarCartoes();
+  if (paginaAtual === 'relatorio') renderizarRelatorio();
+}
+
+// Abre o modal e mostra as parcelas que serão excluídas (esta + próximas)
+async function abrirExcluirParcelasDaqui() {
+  if (!parcelaGrupoEditando || !parcelaDataEditando) { toast('Este lançamento não é parcelado', 'erro'); return; }
+  window._excparDados = null;
+  const prev = document.getElementById('excpar-preview');
+  prev.innerHTML = '<div class="spinner" style="margin:16px auto;"></div>';
+  const btn = document.getElementById('excpar-confirmar');
+  btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none';
+  abrirModal('modal-excluir-parcelas');
+
+  // Busca as parcelas do grupo com data >= a parcela aberta
+  const { data, error } = await sb.from('lancamentos')
+    .select('id, data, descricao, valor, conciliado, parcela_atual, total_parcelas')
+    .eq('parcela_grupo_id', parcelaGrupoEditando)
+    .gte('data', parcelaDataEditando)
+    .order('data', { ascending: true });
+
+  if (error) { prev.innerHTML = `<div style="color:#dc2626;font-size:13px;">Erro ao consultar: ${error.message}</div>`; return; }
+
+  const todos = data || [];
+  const excluir = todos.filter(l => !l.conciliado);
+  const protegidos = todos.filter(l => l.conciliado);
+  window._excparDados = { ids: excluir.map(l => l.id) };
+
+  if (todos.length === 0) {
+    prev.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:#166534;">Nenhuma parcela a partir desta data.</div>`;
+    return;
+  }
+
+  const fmt = d => d.split('-').reverse().join('/');
+  let html = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;">
+    <div style="font-weight:700;font-size:14px;color:#991b1b;margin-bottom:8px;">${excluir.length} parcela(s) serão excluídas:</div>
+    <div style="max-height:170px;overflow-y:auto;">`;
+  excluir.forEach(l => {
+    const parc = l.total_parcelas > 1 ? ` (${l.parcela_atual}/${l.total_parcelas})` : '';
+    html += `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #fee2e2;">
+      <span style="color:#374151;">${fmt(l.data)}${parc}</span>
+      <span style="font-weight:600;color:#dc2626;white-space:nowrap;margin-left:8px;">${R$(l.valor)}</span>
+    </div>`;
+  });
+  html += `</div>`;
+  if (protegidos.length > 0) {
+    html += `<div style="margin-top:10px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px;">
+      ⚠️ ${protegidos.length} parcela(s) já conferida(s) (conciliadas) serão <b>mantidas</b>.
+    </div>`;
+  }
+  html += `</div>`;
+  prev.innerHTML = html;
+
+  const btn2 = document.getElementById('excpar-confirmar');
+  if (excluir.length > 0) { btn2.style.opacity = '1'; btn2.style.pointerEvents = 'auto'; }
+}
+
+// Executa a exclusão das parcelas listadas
+async function confirmarExcluirParcelasDaqui() {
+  const dados = window._excparDados;
+  if (!dados || dados.ids.length === 0) { toast('Nada a excluir', 'erro'); return; }
+  if (!confirm(`Excluir ${dados.ids.length} parcela(s)?`)) return;
+
+  const { error } = await sb.from('lancamentos').delete().in('id', dados.ids);
+  if (error) { toast('Erro ao excluir: ' + error.message, 'erro'); return; }
+
+  window._excparDados = null;
+  fecharModal('modal-excluir-parcelas');
+  fecharModal('modal-lancamento');
+  toast('Parcelas excluídas', 'ok');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
