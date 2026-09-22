@@ -1918,6 +1918,11 @@ function atualizarSubcategorias() {
 // ============================================================
 // DASHBOARD
 // ============================================================
+// Expande/recolhe a lista de uma pendência no dashboard
+function togglePendencia(id) {
+  document.getElementById(id)?.classList.toggle('hidden');
+}
+
 async function renderizarDashboard() {
   const el = document.getElementById('dashboard-content');
   el.innerHTML = '<div class="spinner"></div>';
@@ -2014,7 +2019,100 @@ async function renderizarDashboard() {
       <text x="130" y="${BAR_H + 30}" text-anchor="middle" font-size="12" fill="${corSaldo}" font-weight="700">Saldo: ${R$(saldo)}</text>
     </svg>`;
 
-  el.innerHTML = `
+  // ============================================================
+  // PAINEL DE PENDÊNCIAS — o que exige ação sua neste mês
+  // ============================================================
+  const _hoje = new Date();
+  const _hojeStr = `${_hoje.getFullYear()}-${String(_hoje.getMonth()+1).padStart(2,'0')}-${String(_hoje.getDate()).padStart(2,'0')}`;
+  const ehMesCorrente = (mesAtual === _hoje.getMonth() + 1 && anoAtual === _hoje.getFullYear());
+
+  // 1) Lançamentos sem categoria
+  const pendSemCat = lancReais.filter(l => !l.categoria_id && l.tipo !== 'transferencia');
+
+  // 2) Lançamentos de conta (não cartão) já vencidos e ainda não conciliados
+  const pendNaoConc = lancReais.filter(l =>
+    !l.conciliado && !l.cartao_id && l.tipo !== 'transferencia' && l.data <= _hojeStr
+  );
+
+  // 3) Cartões fechando nos próximos 5 dias (só faz sentido no mês corrente)
+  const pendFechando = !ehMesCorrente ? [] : (cartoes || [])
+    .filter(c => c.ativo !== false && c.dia_fechamento)
+    .map(c => {
+      let dias = c.dia_fechamento - _hoje.getDate();
+      if (dias < 0) dias += ultimoDiaDoMes(anoAtual, mesAtual);
+      const total = (faturas || []).filter(f => f.cartao_id === c.id).reduce((s, f) => s + Number(f.valor), 0);
+      return { nome: c.nome, dias, total };
+    })
+    .filter(c => c.dias <= 5)
+    .sort((a, b) => a.dias - b.dias);
+
+  // 4) Categorias que ultrapassaram o orçamento
+  const pendEstouro = categoriasAlerta.filter(a => a.pct > 100).sort((a, b) => b.pct - a.pct);
+
+  const totalPend = pendSemCat.length + pendNaoConc.length + pendFechando.length + pendEstouro.length;
+
+  const _itensPend = (lista, cor) => {
+    const MAX = 8;
+    let h = lista.slice(0, MAX).map(l => `
+      <div onclick="event.stopPropagation();editarLancamento('${l.id}')" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-left:28px;margin-bottom:4px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:13px;cursor:pointer;">
+        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</span>
+        <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${l.data.slice(8,10)}/${l.data.slice(5,7)}</span>
+        <span style="font-weight:600;white-space:nowrap;color:${cor};">${R$(l.valor)}</span>
+      </div>`).join('');
+    if (lista.length > MAX) {
+      h += `<div style="margin-left:28px;font-size:12px;color:#94a3b8;padding:4px 10px;">+ ${lista.length - MAX} outros — veja em Lançamentos</div>`;
+    }
+    return h;
+  };
+
+  const _linhaPend = (id, icone, rotulo, qtd, cor, conteudo) => `
+    <div onclick="togglePendencia('${id}')" style="display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid #f1f5f9;cursor:pointer;">
+      <span style="font-size:17px;">${icone}</span>
+      <span style="flex:1;font-size:14px;">${rotulo}</span>
+      <span style="font-weight:700;font-size:14px;color:${cor};">${qtd}</span>
+      <span style="color:#cbd5e1;font-size:12px;">▾</span>
+    </div>
+    <div id="${id}" class="hidden" style="padding-bottom:6px;">${conteudo}</div>`;
+
+  let htmlPend = '';
+  if (totalPend === 0) {
+    htmlPend = `
+      <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">✅</span>
+        <div>
+          <div style="font-weight:700;font-size:14px;color:#059669;">Tudo em dia</div>
+          <div style="font-size:12px;color:#94a3b8;">Nenhuma pendência neste mês.</div>
+        </div>
+      </div>`;
+  } else {
+    let linhas = '';
+    if (pendSemCat.length)   linhas += _linhaPend('pend-semcat',  '🏷️', 'Sem categoria',        pendSemCat.length,   '#d97706', _itensPend(pendSemCat, '#dc2626'));
+    if (pendNaoConc.length)  linhas += _linhaPend('pend-naoconc', '🔎', 'A conciliar',          pendNaoConc.length,  '#2563eb', _itensPend(pendNaoConc, '#dc2626'));
+    if (pendFechando.length) linhas += _linhaPend('pend-fatura',  '💳', 'Faturas fechando',     pendFechando.length, '#7c3aed',
+      pendFechando.map(c => `
+        <div style="display:flex;justify-content:space-between;margin-left:28px;margin-bottom:4px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:13px;">
+          <span>${c.nome} — ${c.dias === 0 ? 'fecha hoje' : 'em ' + c.dias + (c.dias === 1 ? ' dia' : ' dias')}</span>
+          <span style="font-weight:600;">${R$(c.total)}</span>
+        </div>`).join(''));
+    if (pendEstouro.length)  linhas += _linhaPend('pend-orcamento', '🚨', 'Orçamento estourado', pendEstouro.length, '#dc2626',
+      pendEstouro.map(a => `
+        <div style="display:flex;justify-content:space-between;margin-left:28px;margin-bottom:4px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:13px;">
+          <span>${a.nome || 'Sem nome'}</span>
+          <span style="font-weight:600;color:#dc2626;">${Math.round(a.pct)}%</span>
+        </div>`).join(''));
+
+    htmlPend = `
+      <div class="card" style="padding:14px 16px;margin-bottom:14px;border-left:4px solid #f59e0b;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">🔔</span>
+          <span style="font-weight:700;font-size:15px;">Pendências</span>
+          <span style="margin-left:auto;background:#fef3c7;color:#b45309;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;">${totalPend}</span>
+        </div>
+        ${linhas}
+      </div>`;
+  }
+
+  el.innerHTML = htmlPend + `
     <!-- 1. Orçamento — primeiro card -->
     <div class="card" style="padding:16px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
