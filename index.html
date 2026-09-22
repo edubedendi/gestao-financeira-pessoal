@@ -1713,6 +1713,13 @@ async function carregarRecorrencias() {
 
 async function processarRecorrencias() {
   if (recorrencias.length === 0) return;
+
+  // Não gera lançamentos retroativos: meses anteriores ao corrente são somente leitura.
+  // Sem essa trava, navegar para trás recria recorrências em meses já encerrados.
+  const _ag = new Date();
+  const mesRefAtual = _ag.getFullYear() * 100 + (_ag.getMonth() + 1);
+  if (anoAtual * 100 + mesAtual < mesRefAtual) return;
+
   const uid = (await sb.auth.getUser()).data.user.id;
   const mesStr = String(mesAtual).padStart(2, '0');
   const inicioMes = `${anoAtual}-${mesStr}-01`;
