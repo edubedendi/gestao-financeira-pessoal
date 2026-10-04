@@ -53,10 +53,10 @@
     .bottom-nav button span.icon { font-size: 20px; }
     .page { display: none; padding: 16px; padding-bottom: 90px; max-width: 480px; margin: 0 auto; }
     .page.active { display: block; }
-    .fab-novo { position: fixed; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); right: max(16px, calc(50% - 240px + 16px));
-                width: 56px; height: 56px; border-radius: 50%; border: none; background: #4f46e5; color: white;
-                font-size: 30px; line-height: 1; cursor: pointer; z-index: 45; box-shadow: 0 6px 16px rgba(79,70,229,0.45); }
-    .fab-novo:active { transform: scale(0.94); }
+    /* Barra de ações da tela de Lançamentos: fica presa no topo ao rolar, sem cobrir a lista */
+    .lanc-topo { position: sticky; top: var(--topo-app, 0px); z-index: 29; background: #f1f5f9;
+                 margin: -16px -16px 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+    .lanc-topo.rolado { box-shadow: 0 4px 10px rgba(15,23,42,0.08); }
     #auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
     .divider { text-align: center; color: #94a3b8; font-size: 13px; margin: 16px 0; position: relative; }
     .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #e2e8f0; }
@@ -126,7 +126,7 @@
 <div id="app-screen" class="hidden">
 
   <!-- HEADER -->
-  <div style="background:#4f46e5;color:white;padding:16px;position:sticky;top:0;z-index:30;">
+  <div id="cabecalho-app" style="background:#4f46e5;color:white;padding:16px;position:sticky;top:0;z-index:30;">
     <div style="max-width:480px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;">
       <div>
         <div style="font-size:12px;opacity:0.8;" id="header-saudacao">Olá!</div>
@@ -150,8 +150,7 @@
   </div>
 
   <div id="page-lancamentos" class="page">
-    <button class="fab-novo" onclick="abrirModalLancamento()" aria-label="Novo lançamento" title="Novo lançamento">+</button>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div class="lanc-topo" id="lanc-topo">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Lançamentos</h2>
       <div style="display:flex;gap:8px;">
         <button class="btn-secondary btn-sm" onclick="toggleFiltros()" id="btn-filtros">🔍 Filtros</button>
@@ -2392,6 +2391,7 @@ function htmlGrupoRateioLista(membros) {
 // Re-renderiza a lista sem perder a posição de rolagem.
 // O spinner encolhia a página e o navegador voltava ao topo; travar a altura evita isso.
 async function renderizarLancamentos(opts = {}) {
+  ajustarTopoFixo();
   const el = document.getElementById('lancamentos-content');
   if (el) el.style.minHeight = el.offsetHeight + 'px';
   try {
@@ -2401,6 +2401,18 @@ async function renderizarLancamentos(opts = {}) {
   }
   if (opts.destacarId) destacarLancamento(opts.destacarId);
 }
+
+// A barra de Lançamentos gruda logo abaixo do cabeçalho roxo (que também é fixo)
+function ajustarTopoFixo() {
+  const h = document.getElementById('cabecalho-app')?.offsetHeight || 0;
+  document.documentElement.style.setProperty('--topo-app', h + 'px');
+}
+window.addEventListener('resize', ajustarTopoFixo);
+window.addEventListener('scroll', () => {
+  ajustarTopoFixo();
+  const topo = document.getElementById('lanc-topo');
+  if (topo) topo.classList.toggle('rolado', window.scrollY > 8);
+}, { passive: true });
 
 // Rola até o lançamento e pisca em amarelo por ~2s
 function destacarLancamento(id) {
