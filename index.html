@@ -53,6 +53,10 @@
     .bottom-nav button span.icon { font-size: 20px; }
     .page { display: none; padding: 16px; padding-bottom: 90px; max-width: 480px; margin: 0 auto; }
     .page.active { display: block; }
+    .fab-novo { position: fixed; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); right: max(16px, calc(50% - 240px + 16px));
+                width: 56px; height: 56px; border-radius: 50%; border: none; background: #4f46e5; color: white;
+                font-size: 30px; line-height: 1; cursor: pointer; z-index: 45; box-shadow: 0 6px 16px rgba(79,70,229,0.45); }
+    .fab-novo:active { transform: scale(0.94); }
     #auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
     .divider { text-align: center; color: #94a3b8; font-size: 13px; margin: 16px 0; position: relative; }
     .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #e2e8f0; }
@@ -146,6 +150,7 @@
   </div>
 
   <div id="page-lancamentos" class="page">
+    <button class="fab-novo" onclick="abrirModalLancamento()" aria-label="Novo lançamento" title="Novo lançamento">+</button>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Lançamentos</h2>
       <div style="display:flex;gap:8px;">
@@ -1081,7 +1086,32 @@
       <button class="btn-primary" onclick="salvarCategoria()">Salvar</button>
     </div>
     <div style="margin-top:12px;" id="cat-btn-excluir" class="hidden">
-      <button class="btn-danger" style="width:100%;" onclick="excluirCategoria()">🗑 Excluir</button>
+      <div style="display:flex;gap:10px;">
+        <button id="cat-btn-mover" class="btn-secondary" style="flex:1;" onclick="abrirMoverSubcategoria()">↔ Mover</button>
+        <button class="btn-danger" style="flex:1;" onclick="abrirExcluirCategoria()">🗑 Excluir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Mover / Excluir com realocação -->
+<div id="modal-realocar" class="modal-overlay hidden" style="z-index:70;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="realoc-titulo">Mover</h3>
+      <button onclick="fecharModal('modal-realocar')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div id="realoc-impacto" style="font-size:13px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 12px;margin-bottom:14px;"></div>
+    <label style="font-size:13px;font-weight:600;color:#475569;" id="realoc-cat-label">Categoria de destino</label>
+    <select id="realoc-cat" style="margin-top:4px;margin-bottom:12px;" onchange="atualizarRealocSub()"></select>
+    <div id="realoc-sub-group" class="hidden">
+      <label style="font-size:13px;font-weight:600;color:#475569;">Subcategoria de destino</label>
+      <select id="realoc-sub" style="margin-top:4px;margin-bottom:12px;"></select>
+    </div>
+    <div id="realoc-aviso" style="font-size:12px;color:#b45309;margin-bottom:8px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-realocar')">Cancelar</button>
+      <button class="btn-primary" id="realoc-btn" onclick="confirmarRealocacao()">Confirmar</button>
     </div>
   </div>
 </div>
@@ -2359,7 +2389,31 @@ function htmlGrupoRateioLista(membros) {
   return h;
 }
 
-async function renderizarLancamentos() {
+// Re-renderiza a lista sem perder a posição de rolagem.
+// O spinner encolhia a página e o navegador voltava ao topo; travar a altura evita isso.
+async function renderizarLancamentos(opts = {}) {
+  const el = document.getElementById('lancamentos-content');
+  if (el) el.style.minHeight = el.offsetHeight + 'px';
+  try {
+    await _renderizarLancamentosBase();
+  } finally {
+    if (el) el.style.minHeight = '';
+  }
+  if (opts.destacarId) destacarLancamento(opts.destacarId);
+}
+
+// Rola até o lançamento e pisca em amarelo por ~2s
+function destacarLancamento(id) {
+  const alvo = document.querySelector(`#lancamentos-content [onclick*="${id}"]`);
+  if (!alvo) return;   // salvo em outro mês ou fora do filtro: mantém a posição atual
+  alvo.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const bgOriginal = alvo.style.backgroundColor;
+  alvo.style.transition = 'background-color 0.5s';
+  alvo.style.backgroundColor = '#fef08a';
+  setTimeout(() => { alvo.style.backgroundColor = bgOriginal; }, 2000);
+}
+
+async function _renderizarLancamentosBase() {
   const el = document.getElementById('lancamentos-content');
   el.innerHTML = '<div class="spinner"></div>';
 
@@ -3045,6 +3099,7 @@ async function salvarLancamento() {
 
   const id = document.getElementById('lanc-id').value;
   const ehRecorrente = document.getElementById('lanc-recorrente').checked;
+  let idDestaque = id || null;   // lançamento a destacar na lista após salvar
 
   if (id) {
     const aplicarTodas = parcelaGrupoEditando && document.getElementById('lanc-aplicar-todas').checked;
@@ -3111,19 +3166,22 @@ async function salvarLancamento() {
         parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: parcelaGrupoId
       });
     }
-    const { error } = await sb.from('lancamentos').insert(inserts);
+    const { data: insParc, error } = await sb.from('lancamentos').insert(inserts).select('id, data');
     if (error) { toast('Erro ao salvar parcelas', 'erro'); return; }
+    const mesVis = `${anoAtual}-${String(mesAtual).padStart(2,'0')}`;
+    idDestaque = (insParc || []).find(p => String(p.data).slice(0,7) === mesVis)?.id || insParc?.[0]?.id || null;
     toast(`${parcelas} parcelas criadas!`, 'ok');
   } else {
     // Simples
     const uid = (await sb.auth.getUser()).data.user.id;
-    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra });
+    const { data: insSimples, error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).select('id').single();
     if (error) { toast('Erro ao salvar', 'erro'); return; }
+    idDestaque = insSimples?.id || null;
     toast('Lançamento salvo!', 'ok');
   }
 
   fecharModal('modal-lancamento');
-  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'lancamentos') await renderizarLancamentos({ destacarId: idDestaque });
   if (paginaAtual === 'dashboard') renderizarDashboard();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
@@ -6232,6 +6290,7 @@ async function editarCategoria(id) {
   document.getElementById('cat-icone').value = icone;
   document.getElementById('cat-icone-preview').textContent = icone;
   document.getElementById('cat-btn-excluir').classList.remove('hidden');
+  document.getElementById('cat-btn-mover').style.display = c.parent_id ? '' : 'none';
   if (c.parent_id) {
     // É subcategoria: mostra seletor de pai, esconde tipo
     document.getElementById('cat-tipo-group').classList.add('hidden');
@@ -6301,15 +6360,208 @@ async function salvarCategoria() {
   if (paginaAtual === 'config') renderizarConfig();
 }
 
-async function excluirCategoria() {
-  if (!confirm('Excluir esta categoria? As subcategorias também serão excluídas.')) return;
-  const id = document.getElementById('cat-id').value;
-  await sb.from('categorias').delete().eq('id', id);
+// ============================================================
+// MOVER / EXCLUIR CATEGORIA COM REALOCAÇÃO DOS LANÇAMENTOS
+// ============================================================
+let _realoc = null;   // { modo: 'mover' | 'excluir', origem: categoria }
+
+// Conta onde a categoria está em uso
+async function contarUsoCategoria(id) {
+  const contar = async (tabela) => {
+    const { count } = await sb.from(tabela).select('id', { count: 'exact', head: true }).eq('categoria_id', id);
+    return count || 0;
+  };
+  const [lanc, rec, reg, orc] = await Promise.all(
+    ['lancamentos', 'recorrencias', 'regras_categorizacao', 'orcamento'].map(contar)
+  );
+  return { lanc, rec, reg, orc, total: lanc + rec + reg + orc };
+}
+
+function textoUso(u) {
+  const partes = [];
+  const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+  if (u.lanc) partes.push(pl(u.lanc, 'lançamento', 'lançamentos'));
+  if (u.rec)  partes.push(pl(u.rec, 'recorrência', 'recorrências'));
+  if (u.reg)  partes.push(pl(u.reg, 'regra', 'regras'));
+  if (u.orc)  partes.push(pl(u.orc, 'orçamento', 'orçamentos'));
+  if (!partes.length) return '';
+  return partes.length === 1 ? partes[0] : partes.slice(0, -1).join(', ') + ' e ' + partes.slice(-1);
+}
+
+function _rotuloCat(c) { return (c.icone || '📁') + ' ' + c.nome; }
+
+// Aponta tudo que usava a categoria de origem para a de destino
+async function reatribuirCategoria(origemId, destinoId) {
+  for (const tabela of ['lancamentos', 'recorrencias', 'regras_categorizacao']) {
+    const { error } = await sb.from(tabela).update({ categoria_id: destinoId }).eq('categoria_id', origemId);
+    if (error) throw new Error(`${tabela}: ${error.message}`);
+  }
+  // Orçamento: se o destino já tem valor planejado no mesmo mês, soma; senão, transfere
+  const { data: orcOrigem, error: e1 } = await sb.from('orcamento')
+    .select('id, mes, ano, valor_planejado').eq('categoria_id', origemId);
+  if (e1) throw new Error('orcamento: ' + e1.message);
+  for (const o of (orcOrigem || [])) {
+    const { data: existente } = await sb.from('orcamento').select('id, valor_planejado')
+      .eq('categoria_id', destinoId).eq('mes', o.mes).eq('ano', o.ano).maybeSingle();
+    if (existente) {
+      await sb.from('orcamento').update({ valor_planejado: Number(existente.valor_planejado) + Number(o.valor_planejado) }).eq('id', existente.id);
+      await sb.from('orcamento').delete().eq('id', o.id);
+    } else {
+      await sb.from('orcamento').update({ categoria_id: destinoId }).eq('id', o.id);
+    }
+  }
+}
+
+// --- MOVER subcategoria para outra categoria ---
+async function abrirMoverSubcategoria() {
+  const origem = categorias.find(c => c.id === document.getElementById('cat-id').value);
+  if (!origem || !origem.parent_id) return;
+  _realoc = { modo: 'mover', origem };
+
+  const destinos = categorias.filter(c => c.tipo === origem.tipo && !c.parent_id && c.id !== origem.parent_id);
+  if (!destinos.length) { toast('Não há outra categoria de ' + origem.tipo + ' para onde mover', 'erro'); return; }
+
+  document.getElementById('realoc-titulo').textContent = 'Mover "' + origem.nome + '"';
+  document.getElementById('realoc-cat-label').textContent = 'Mover para a categoria';
+  document.getElementById('realoc-sub-group').classList.add('hidden');
+  document.getElementById('realoc-btn').textContent = 'Mover';
+  document.getElementById('realoc-btn').className = 'btn-primary';
+  const sel = document.getElementById('realoc-cat');
+  sel.innerHTML = '<option value="">Selecione...</option>' + destinos.map(c => `<option value="${c.id}">${_rotuloCat(c)}</option>`).join('');
+
+  const imp = document.getElementById('realoc-impacto');
+  imp.textContent = 'Calculando...';
+  abrirModal('modal-realocar');
+  atualizarRealocSub();
+  const u = await contarUsoCategoria(origem.id);
+  const t = textoUso(u);
+  imp.innerHTML = t
+    ? `Vão junto automaticamente: <b>${t}</b>.`
+    : 'Nenhum lançamento usa esta subcategoria ainda.';
+}
+
+// --- EXCLUIR categoria/subcategoria, perguntando o destino ---
+async function abrirExcluirCategoria() {
+  const origem = categorias.find(c => c.id === document.getElementById('cat-id').value);
+  if (!origem) return;
+
+  const subs = categorias.filter(c => c.parent_id === origem.id);
+  if (subs.length) {
+    alert(`"${origem.nome}" tem ${subs.length} subcategoria(s). Mova ou exclua as subcategorias antes de excluir a categoria.`);
+    return;
+  }
+
+  const u = await contarUsoCategoria(origem.id);
+  if (u.total === 0) {
+    if (!confirm(`Excluir "${origem.nome}"? Nenhum lançamento usa esta ${origem.parent_id ? 'subcategoria' : 'categoria'}.`)) return;
+    const { error } = await sb.from('categorias').delete().eq('id', origem.id);
+    if (error) { toast('Erro ao excluir: ' + error.message, 'erro'); return; }
+    await carregarCategorias();
+    fecharModal('modal-categoria');
+    toast('Excluída', 'ok');
+    renderizarConfig();
+    return;
+  }
+
+  _realoc = { modo: 'excluir', origem };
+  const destinos = categorias.filter(c => c.tipo === origem.tipo && !c.parent_id && c.id !== origem.id);
+  if (!destinos.length) { toast('Crie outra categoria de ' + origem.tipo + ' para receber os lançamentos', 'erro'); return; }
+
+  document.getElementById('realoc-titulo').textContent = 'Excluir "' + origem.nome + '"';
+  document.getElementById('realoc-cat-label').textContent = 'Mover os lançamentos para a categoria';
+  document.getElementById('realoc-btn').textContent = 'Mover e excluir';
+  document.getElementById('realoc-btn').className = 'btn-danger';
+  document.getElementById('realoc-impacto').innerHTML =
+    `Esta ${origem.parent_id ? 'subcategoria' : 'categoria'} está em uso por <b>${textoUso(u)}</b>. Escolha para onde transferir antes de excluir.`;
+  const sel = document.getElementById('realoc-cat');
+  sel.innerHTML = '<option value="">Selecione...</option>' + destinos.map(c => `<option value="${c.id}">${_rotuloCat(c)}</option>`).join('');
+  if (origem.parent_id && destinos.some(d => d.id === origem.parent_id)) sel.value = origem.parent_id;
+  abrirModal('modal-realocar');
+  atualizarRealocSub();
+}
+
+// Atualiza a lista de subcategorias de destino (excluir) ou o aviso de nome repetido (mover)
+function atualizarRealocSub() {
+  if (!_realoc) return;
+  const { modo, origem } = _realoc;
+  const catId = document.getElementById('realoc-cat').value;
+  const aviso = document.getElementById('realoc-aviso');
+  aviso.textContent = '';
+
+  if (modo === 'mover') {
+    if (!catId) return;
+    const conflito = categorias.find(c => c.parent_id === catId && c.id !== origem.id &&
+      c.nome.trim().toLowerCase() === origem.nome.trim().toLowerCase());
+    if (conflito) aviso.textContent = `Já existe "${conflito.nome}" nessa categoria. Ao confirmar, as duas serão unificadas.`;
+    return;
+  }
+
+  // modo excluir
+  const grupo = document.getElementById('realoc-sub-group');
+  const subSel = document.getElementById('realoc-sub');
+  const subs = categorias.filter(c => c.parent_id === catId && c.id !== origem.id);
+  if (!catId || !subs.length) {
+    grupo.classList.add('hidden');
+    subSel.innerHTML = '';
+    return;
+  }
+  grupo.classList.remove('hidden');
+  subSel.innerHTML = '<option value="">Selecione...</option>' + subs.map(c => `<option value="${c.id}">${_rotuloCat(c)}</option>`).join('');
+}
+
+async function confirmarRealocacao() {
+  if (!_realoc) return;
+  const { modo, origem } = _realoc;
+  const catId = document.getElementById('realoc-cat').value;
+  if (!catId) { toast('Escolha a categoria de destino', 'erro'); return; }
+  const btn = document.getElementById('realoc-btn');
+  btn.disabled = true;
+
+  try {
+    if (modo === 'mover') {
+      const conflito = categorias.find(c => c.parent_id === catId && c.id !== origem.id &&
+        c.nome.trim().toLowerCase() === origem.nome.trim().toLowerCase());
+      if (conflito) {
+        // Unifica: tudo passa para a subcategoria que já existia no destino
+        await reatribuirCategoria(origem.id, conflito.id);
+        const { error } = await sb.from('categorias').delete().eq('id', origem.id);
+        if (error) throw new Error(error.message);
+        toast(`Unificada com "${conflito.nome}"`, 'ok');
+      } else {
+        // Basta trocar o pai: os lançamentos apontam para a subcategoria e vão junto
+        const { error } = await sb.from('categorias').update({ parent_id: catId }).eq('id', origem.id);
+        if (error) throw new Error(error.message);
+        const destino = categorias.find(c => c.id === catId);
+        toast(`"${origem.nome}" movida para ${destino?.nome || 'a nova categoria'}`, 'ok');
+      }
+    } else {
+      const subVisivel = !document.getElementById('realoc-sub-group').classList.contains('hidden');
+      const subId = document.getElementById('realoc-sub').value;
+      if (subVisivel && !subId) { toast('Escolha a subcategoria de destino', 'erro'); btn.disabled = false; return; }
+      const destinoId = subVisivel ? subId : catId;
+      await reatribuirCategoria(origem.id, destinoId);
+      const { error } = await sb.from('categorias').delete().eq('id', origem.id);
+      if (error) throw new Error(error.message);
+      const d = categorias.find(c => c.id === destinoId);
+      toast(`Lançamentos movidos para "${d?.nome || 'destino'}" e "${origem.nome}" excluída`, 'ok');
+    }
+  } catch (e) {
+    toast('Erro: ' + e.message, 'erro');
+    btn.disabled = false;
+    return;
+  }
+
+  btn.disabled = false;
+  _realoc = null;
   await carregarCategorias();
-  toast('Categoria excluída', 'ok');
+  if (typeof carregarRegras === 'function') await carregarRegras();
+  fecharModal('modal-realocar');
   fecharModal('modal-categoria');
   renderizarConfig();
 }
+
+// Mantido por compatibilidade: a exclusão agora sempre passa pela realocação
+async function excluirCategoria() { return abrirExcluirCategoria(); }
 
   </script>
 </body>
