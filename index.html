@@ -574,7 +574,8 @@
       <button class="btn-danger" style="width:100%;background:#fef2f2;" onclick="abrirExcluirParcelasDaqui()">🗑 Excluir esta e as próximas parcelas</button>
     </div>
     <div style="margin-top:8px;" id="lanc-btn-adiar-parcelas" class="hidden">
-      <button style="width:100%;background:#fef3c7;color:#92400e;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;" onclick="abrirAdiarParcelas()">⏭ Adiar esta e as próximas parcelas (1 mês)</button>
+      <button style="width:100%;background:#fef3c7;color:#92400e;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;" onclick="abrirAdiarParcelas(1)">⏭ Adiar esta e as próximas parcelas (1 mês)</button>
+      <button style="width:100%;margin-top:8px;background:#e0f2fe;color:#075985;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;" onclick="abrirAdiarParcelas(-1)">⏮ Antecipar esta e as próximas parcelas (1 mês)</button>
     </div>
 
     <!-- Importar Extrato -->
@@ -965,10 +966,10 @@
 <div id="modal-adiar-parcelas" class="modal-overlay hidden" style="z-index:61;">
   <div class="modal-box">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h3 style="margin:0;font-size:18px;font-weight:700;">Adiar parcelas</h3>
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="adiar-titulo">Adiar parcelas</h3>
       <button onclick="fecharModal('modal-adiar-parcelas')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
-    <p style="font-size:14px;color:#64748b;margin:0 0 12px;">A fatura não veio neste mês? Esta parcela e todas as seguintes serão empurradas <b>um mês para frente</b>. A numeração (ex: 2/6) e os valores não mudam.</p>
+    <p style="font-size:14px;color:#64748b;margin:0 0 12px;" id="adiar-texto">A fatura não veio neste mês? Esta parcela e todas as seguintes serão empurradas <b>um mês para frente</b>. A numeração (ex: 2/6) e os valores não mudam.</p>
     <div id="adiar-preview" style="margin-bottom:14px;"><div class="spinner" style="margin:16px auto;"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <button class="btn-secondary" onclick="fecharModal('modal-adiar-parcelas')">Voltar</button>
@@ -3211,10 +3212,25 @@ function _somarUmMes(dataStr) {
   return `${na}-${String(nm).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
 }
 
-// Abre o modal mostrando o antes→depois do adiamento
-async function abrirAdiarParcelas() {
+// Desloca uma data em n meses, ajustando o dia ao último dia do mês quando preciso
+function _deslocarMes(dataStr, n) {
+  const [a, m, d] = dataStr.split('-').map(Number);
+  const total = a * 12 + (m - 1) + n;
+  const na = Math.floor(total / 12), nm = (total % 12) + 1;
+  const dia = Math.min(d, ultimoDiaDoMes(na, nm));
+  return `${na}-${String(nm).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+}
+
+// Abre o modal mostrando o antes→depois. direcao = 1 adia, -1 antecipa
+async function abrirAdiarParcelas(direcao = 1) {
   if (!parcelaGrupoEditando || !parcelaDataEditando) { toast('Este lançamento não é parcelado', 'erro'); return; }
   window._adiarDados = null;
+  const adiar = direcao > 0;
+  document.getElementById('adiar-titulo').textContent = adiar ? 'Adiar parcelas' : 'Antecipar parcelas';
+  document.getElementById('adiar-texto').innerHTML = adiar
+    ? 'A fatura não veio neste mês? Esta parcela e todas as seguintes serão empurradas <b>um mês para frente</b>. A numeração (ex: 2/6) e os valores não mudam.'
+    : 'Lançou no mês errado? Esta parcela e todas as seguintes serão trazidas <b>um mês para trás</b>. A numeração (ex: 2/6) e os valores não mudam.';
+  document.getElementById('adiar-confirmar').textContent = adiar ? 'Adiar parcelas' : 'Antecipar parcelas';
   const prev = document.getElementById('adiar-preview');
   prev.innerHTML = '<div class="spinner" style="margin:16px auto;"></div>';
   const btn = document.getElementById('adiar-confirmar');
@@ -3234,22 +3250,22 @@ async function abrirAdiarParcelas() {
   const mover = todos.filter(l => !l.conciliado);
   const protegidas = todos.filter(l => l.conciliado);
 
-  window._adiarDados = { itens: mover.map(l => ({ id: l.id, novaData: _somarUmMes(l.data) })) };
+  window._adiarDados = { direcao, itens: mover.map(l => ({ id: l.id, novaData: _deslocarMes(l.data, direcao) })) };
 
   if (mover.length === 0) {
-    prev.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:#166534;">Nenhuma parcela a adiar a partir desta data.</div>`;
+    prev.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:#166534;">Nenhuma parcela a ${adiar ? 'adiar' : 'antecipar'} a partir desta data.</div>`;
     return;
   }
 
   const fmt = d => d.split('-').reverse().join('/');
   let html = `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;">
-    <div style="font-weight:700;font-size:14px;color:#92400e;margin-bottom:8px;">${mover.length} parcela(s) serão adiadas:</div>
+    <div style="font-weight:700;font-size:14px;color:#92400e;margin-bottom:8px;">${mover.length} parcela(s) serão ${adiar ? 'adiadas' : 'antecipadas'}:</div>
     <div style="max-height:170px;overflow-y:auto;">`;
   mover.forEach(l => {
     const parc = l.total_parcelas > 1 ? `${l.parcela_atual}/${l.total_parcelas}` : '';
     html += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px solid #fef3c7;">
       <span style="color:#64748b;">${parc}</span>
-      <span style="color:#374151;">${fmt(l.data)} <span style="color:#92400e;font-weight:700;">→</span> <b>${fmt(_somarUmMes(l.data))}</b></span>
+      <span style="color:#374151;">${fmt(l.data)} <span style="color:#92400e;font-weight:700;">→</span> <b>${fmt(_deslocarMes(l.data, direcao))}</b></span>
     </div>`;
   });
   html += `</div>`;
@@ -3267,20 +3283,24 @@ async function abrirAdiarParcelas() {
 // Aplica o adiamento (uma atualização por parcela)
 async function confirmarAdiarParcelas() {
   const dados = window._adiarDados;
-  if (!dados || dados.itens.length === 0) { toast('Nada a adiar', 'erro'); return; }
-  if (!confirm(`Adiar ${dados.itens.length} parcela(s) em um mês?`)) return;
+  const adiar = (dados?.direcao ?? 1) > 0;
+  const verbo = adiar ? 'Adiar' : 'Antecipar';
+  if (!dados || dados.itens.length === 0) { toast('Nada a ' + verbo.toLowerCase(), 'erro'); return; }
+  if (!confirm(`${verbo} ${dados.itens.length} parcela(s) em um mês?`)) return;
 
-  // Atualiza da última para a primeira, evitando colisão de datas no caminho
-  const ordenados = [...dados.itens].sort((a, b) => a.novaData < b.novaData ? 1 : -1);
+  // Adiar: da última para a primeira. Antecipar: da primeira para a última.
+  const ordenados = [...dados.itens].sort((a, b) => adiar
+    ? (a.novaData < b.novaData ? 1 : -1)
+    : (a.novaData > b.novaData ? 1 : -1));
   for (const it of ordenados) {
     const { error } = await sb.from('lancamentos').update({ data: it.novaData }).eq('id', it.id);
-    if (error) { toast('Erro ao adiar: ' + error.message, 'erro'); return; }
+    if (error) { toast(`Erro ao ${verbo.toLowerCase()}: ` + error.message, 'erro'); return; }
   }
 
   window._adiarDados = null;
   fecharModal('modal-adiar-parcelas');
   fecharModal('modal-lancamento');
-  toast(`${ordenados.length} parcela(s) adiada(s) em 1 mês`, 'ok');
+  toast(`${ordenados.length} parcela(s) ${adiar ? 'adiada(s)' : 'antecipada(s)'} em 1 mês`, 'ok');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
