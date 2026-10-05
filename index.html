@@ -4848,6 +4848,119 @@ async function renderizarExtrato(opts = {}) {
   const pctConf = qtdTotal > 0 ? Math.round(qtdConf / qtdTotal * 100) : 0;
   const valorFaltante = lancamentos.filter(l => !l.conciliado).reduce((s, l) => s + Number(l.valor), 0);
 
+  // ============================================================
+  // FLUXO DO MÊS E PREVISÃO DE SALDO
+  // Lançado = o que já está na conta. Previsto = faturas a pagar +
+  // orçamento ainda não realizado. Mês passado: só o lançado.
+  // ============================================================
+  let htmlPrevisao = '';
+  try {
+    const _hj = new Date();
+    const refHoje = _hj.getFullYear() * 100 + (_hj.getMonth() + 1);
+    const refMes = anoAtual * 100 + mesAtual;
+    const mesPassado = refMes < refHoje;
+    const mesCorrente = refMes === refHoje;
+
+    // Conta principal: a que paga os cartões (ou a primeira conta corrente)
+    const contaPrincipalId = (cartoes || []).find(c => c.conta_pagamento_id)?.conta_pagamento_id
+      || contas.find(c => c.tipo === 'corrente')?.id || contas[0]?.id;
+    const ehPrincipal = conta.id === contaPrincipalId;
+
+    const entLanc = receitasMes;
+    const saiLanc = despesasMes + transferenciasMes;
+
+    // Faturas que vencem no mês, pagas por esta conta e ainda não registradas como pagas
+    const faturasPrev = [];
+    if (!mesPassado) {
+      const cartoesConta = (cartoes || []).filter(c => c.ativo !== false &&
+        (c.conta_pagamento_id ? c.conta_pagamento_id === conta.id : ehPrincipal));
+      if (cartoesConta.length) {
+        const { data: fat } = await sb.from('lancamentos').select('valor, cartao_id')
+          .eq('tipo', 'despesa').in('cartao_id', cartoesConta.map(c => c.id))
+          .gte('data', inicioMes).lte('data', fimMes);
+        const pagos = lancamentos.filter(l => l.observacao === '__pgtofatura__');
+        const refFatura = `(${meses[mesAtual-1]}/${anoAtual})`;
+        for (const c of cartoesConta) {
+          const total = (fat || []).filter(f => f.cartao_id === c.id).reduce((t, f) => t + Number(f.valor), 0);
+          if (total <= 0) continue;
+          const jaPago = pagos.some(pg => (pg.descricao || '').includes(c.nome) && (pg.descricao || '').includes(refFatura));
+          if (!jaPago) faturasPrev.push({ nome: c.nome, venc: c.dia_vencimento, total });
+        }
+      }
+    }
+
+    // Orçamento planejado que ainda não aconteceu, atribuído a esta conta
+    const recOrcPrev = [], despOrcPrev = [];
+    if (!mesPassado) {
+      const [{ data: orc }, { data: lancTodos }] = await Promise.all([
+        sb.from('orcamento').select('categoria_id, valor_planejado').eq('mes', mesAtual).eq('ano', anoAtual),
+        sb.from('lancamentos').select('valor, categoria_id, observacao').gte('data', inicioMes).lte('data', fimMes)
+      ]);
+      const holIds = idsCategoriasHolerite();
+      const realPorCat = {};
+      (lancTodos || []).forEach(l => {
+        if (l.observacao === '__hol__' || !l.categoria_id) return;
+        realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor);
+      });
+      for (const o of (orc || [])) {
+        if (holIds.has(o.categoria_id)) continue;
+        const cat = categorias.find(c => c.id === o.categoria_id);
+        if (!cat) continue;
+        const pai = cat.parent_id ? categorias.find(c => c.id === cat.parent_id) : null;
+        // Conta da categoria: a definida nela, a do pai, ou a conta principal
+        const contaCat = cat.conta_padrao_id || pai?.conta_padrao_id || contaPrincipalId;
+        if (contaCat !== conta.id) continue;
+        const ids = [cat.id, ...(cat.parent_id ? [] : categorias.filter(c => c.parent_id === cat.id).map(c => c.id))];
+        const real = ids.reduce((t, id) => t + (realPorCat[id] || 0), 0);
+        const falta = Number(o.valor_planejado) - real;
+        if (falta <= 0.004) continue;
+        (cat.tipo === 'receita' ? recOrcPrev : despOrcPrev).push({ nome: (pai ? pai.nome + ' › ' : '') + cat.nome, falta });
+      }
+    }
+
+    const soma = (a, k) => a.reduce((t, x) => t + x[k], 0);
+    const entPrev = soma(recOrcPrev, 'falta');
+    const saiPrev = soma(faturasPrev, 'total') + soma(despOrcPrev, 'falta');
+    const entTot = entLanc + entPrev, saiTot = saiLanc + saiPrev;
+    const resultado = entTot - saiTot;
+    const saldoPrevisto = saldoAnteriorMes + resultado;
+    const sinal = v => (v >= 0 ? '+ ' : '− ') + R$(Math.abs(v));
+
+    const linhaDet = (rot, v) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#64748b;padding:3px 0 3px 10px;"><span>${rot}</span><span style="white-space:nowrap;">${R$(v)}</span></div>`;
+    const detalhes =
+      (recOrcPrev.length ? `<div style="font-size:12px;font-weight:600;color:#059669;margin-top:8px;">Receitas orçadas a receber</div>` + recOrcPrev.map(x => linhaDet(x.nome, x.falta)).join('') : '') +
+      (faturasPrev.length ? `<div style="font-size:12px;font-weight:600;color:#7c3aed;margin-top:8px;">Faturas a pagar</div>` + faturasPrev.map(x => linhaDet(`💳 ${x.nome} — dia ${x.venc}`, x.total)).join('') : '') +
+      (despOrcPrev.length ? `<div style="font-size:12px;font-weight:600;color:#dc2626;margin-top:8px;">Orçado ainda não gasto</div>` + [...despOrcPrev].sort((a, b) => b.falta - a.falta).map(x => linhaDet(x.nome, x.falta)).join('') : '');
+
+    const th = 'font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;text-align:right;';
+    const td = 'font-size:13px;text-align:right;white-space:nowrap;';
+    htmlPrevisao = `
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:15px;margin-bottom:10px;">📊 Fluxo de ${meses[mesAtual-1]}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px 10px;align-items:center;">
+        <div></div><div style="${th}">Lançado</div><div style="${th}">Previsto</div><div style="${th}">Total</div>
+        <div style="font-size:13px;color:#059669;font-weight:600;">Entradas</div>
+        <div style="${td}">${R$(entLanc)}</div><div style="${td}">${R$(entPrev)}</div><div style="${td}font-weight:700;">${R$(entTot)}</div>
+        <div style="font-size:13px;color:#dc2626;font-weight:600;">Saídas</div>
+        <div style="${td}">${R$(saiLanc)}</div><div style="${td}">${R$(saiPrev)}</div><div style="${td}font-weight:700;">${R$(saiTot)}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #f1f5f9;margin-top:10px;padding-top:10px;">
+        <span style="font-size:14px;font-weight:700;">Resultado do mês</span>
+        <span style="font-size:17px;font-weight:700;color:${resultado >= 0 ? '#059669' : '#dc2626'};">${sinal(resultado)}</span>
+      </div>
+      ${(mesCorrente || mesPassado) ? `
+      <div style="background:#f8fafc;border-radius:10px;padding:10px 12px;margin-top:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Saldo no início do mês</span><span>${R$(saldoAnteriorMes)}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Resultado do mês</span><span>${sinal(resultado)}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:6px;">
+          <span>${mesPassado ? 'Saldo final' : 'Saldo previsto em ' + ultimoDiaDoMes(anoAtual, mesAtual) + '/' + String(mesAtual).padStart(2, '0')}</span>
+          <span style="color:${saldoPrevisto >= 0 ? '#059669' : '#dc2626'};">${R$(saldoPrevisto)}</span>
+        </div>
+      </div>` : `<div style="font-size:12px;color:#94a3b8;margin-top:8px;">O saldo previsto aparece no mês corrente; em meses futuros, use o resultado do mês.</div>`}
+      ${detalhes ? `<details style="margin-top:10px;"><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Ver o que compõe o previsto</summary>${detalhes}</details>` : ''}
+    </div>`;
+  } catch (e) { console.error('Previsão:', e); htmlPrevisao = ''; }
+
   const grupos = {};
   lancamentos.forEach(l => {
     if (!grupos[l.data]) grupos[l.data] = [];
@@ -4957,7 +5070,7 @@ async function renderizarExtrato(opts = {}) {
           <div style="font-weight:700;font-size:16px;color:#dc2626;">${R$(despesasMes)}</div>
         </div>
         <div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Saldo atual</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Saldo lançado</div>
           <div style="font-weight:700;font-size:16px;color:${saldoFinal>=0?'#059669':'#dc2626'};">${R$(saldoFinal)}</div>
         </div>
       </div>
@@ -4965,6 +5078,7 @@ async function renderizarExtrato(opts = {}) {
         Saldo anterior ao mês: ${R$(saldoAnteriorMes)}
       </div>
     </div>
+    ${htmlPrevisao}
     ${qtdTotal > 0 ? `
     <div class="card" style="padding:14px 16px;margin-bottom:14px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
