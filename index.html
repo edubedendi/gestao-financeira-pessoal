@@ -2052,11 +2052,10 @@ function atualizarSubcategorias() {
     return;
   }
   const subs = categorias.filter(c => c.parent_id === catId);
-  if (subs.length === 0) {
-    subGroup.classList.add('hidden');
-    return;
-  }
-  subSel.innerHTML = '<option value="">Nenhuma (usar só a categoria)</option>';
+  // Mesmo sem subcategorias o campo aparece, para permitir criar a primeira pelo "+"
+  subSel.innerHTML = subs.length
+    ? '<option value="">Nenhuma (usar só a categoria)</option>'
+    : '<option value="">Nenhuma cadastrada — toque em + para criar</option>';
   subs.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.id;
@@ -3137,7 +3136,10 @@ async function salvarLancamento() {
 
   // Validação de campos obrigatórios
   const catIdPrincipal = document.getElementById('lanc-categoria').value || null;
-  const subGroupVisivel = !document.getElementById('lanc-subcategoria-group').classList.contains('hidden');
+  // Subcategoria é obrigatória só quando a categoria escolhida tem subcategorias
+  const catEscolhida = document.getElementById('lanc-categoria')?.value;
+  const subGroupVisivel = !document.getElementById('lanc-subcategoria-group').classList.contains('hidden')
+    && categorias.some(c => c.parent_id === catEscolhida);
   if (!favId) { toast('Selecione o favorecido', 'erro'); return; }
   if (forma !== 'cartao' && !contaId) { toast('Selecione a conta', 'erro'); return; }
   if (!valor) { toast('Informe o valor', 'erro'); return; }
@@ -6556,8 +6558,10 @@ async function salvarCategoria() {
     window._catModoRapido = false;
     const tipoLanc = getTipoLancamento ? getTipoLancamento() : tipo;
     popularSelectCategorias('lanc-categoria', tipoLanc);
-    document.getElementById('lanc-categoria').value = newId;
+    // Subcategoria: seleciona o pai no campo Categoria e ela no campo Subcategoria
+    document.getElementById('lanc-categoria').value = parentId || newId;
     atualizarSubcategorias();
+    if (parentId) document.getElementById('lanc-subcategoria').value = newId;
     return;
   }
   // Callback de importacao
