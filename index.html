@@ -164,6 +164,7 @@
           <label>Período</label>
           <select id="filtro-periodo" onchange="togglePeriodoCustom();renderizarLancamentos()">
             <option value="mes">Mês atual</option>
+            <option value="dia">Um dia</option>
             <option value="mes_anterior">Mês anterior</option>
             <option value="3meses">Últimos 3 meses</option>
             <option value="ano">Este ano</option>
@@ -178,6 +179,14 @@
             <option value="receita">Receita</option>
             <option value="transferencia">Transferência</option>
           </select>
+        </div>
+      </div>
+      <div id="filtro-dia-wrap" class="hidden" style="margin-bottom:10px;">
+        <label>Dia</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button type="button" class="btn-secondary" style="width:auto;padding:8px 12px;" onclick="passoFiltroDia(-1)">‹</button>
+          <input type="date" id="filtro-dia" onchange="renderizarLancamentos()" style="flex:1;" />
+          <button type="button" class="btn-secondary" style="width:auto;padding:8px 12px;" onclick="passoFiltroDia(1)">›</button>
         </div>
       </div>
       <div id="filtro-datas-custom" class="hidden" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
@@ -356,26 +365,26 @@
     <button onclick="navegarPara('dashboard')" id="nav-dashboard" class="active">
       <span class="icon">🏠</span><span>Início</span>
     </button>
-    <button onclick="navegarPara('lancamentos')" id="nav-lancamentos">
-      <span class="icon">📝</span><span>Lançamentos</span>
-    </button>
     <button onclick="navegarPara('orcamento')" id="nav-orcamento">
       <span class="icon">📊</span><span>Orçamento</span>
     </button>
-    <button onclick="navegarPara('cartoes')" id="nav-cartoes">
-      <span class="icon">💳</span><span>Cartões</span>
+    <button onclick="navegarPara('lancamentos')" id="nav-lancamentos">
+      <span class="icon">📝</span><span>Lançamentos</span>
     </button>
-    <button onclick="navegarPara('holerite')" id="nav-holerite">
-      <span class="icon">📄</span><span>Holerite</span>
-    </button>
-    <button onclick="navegarPara('poupanca')" id="nav-poupanca">
-      <span class="icon">🎯</span><span>Poupança</span>
+    <button onclick="navegarPara('extrato')" id="nav-extrato">
+      <span class="icon">🏦</span><span>Extrato</span>
     </button>
     <button onclick="navegarPara('relatorio')" id="nav-relatorio">
       <span class="icon">📈</span><span>Relatório</span>
     </button>
-    <button onclick="navegarPara('extrato')" id="nav-extrato">
-      <span class="icon">🏦</span><span>Extrato</span>
+    <button onclick="navegarPara('cartoes')" id="nav-cartoes">
+      <span class="icon">💳</span><span>Cartões</span>
+    </button>
+    <button onclick="navegarPara('poupanca')" id="nav-poupanca">
+      <span class="icon">🎯</span><span>Poupança</span>
+    </button>
+    <button onclick="navegarPara('holerite')" id="nav-holerite">
+      <span class="icon">📄</span><span>Holerite</span>
     </button>
   </nav>
 
@@ -2453,6 +2462,10 @@ async function _renderizarLancamentosBase() {
   } else if (periodo === 'ano') {
     dataInicio = `${anoAtual}-01-01`;
     dataFim = `${anoAtual}-12-31`;
+  } else if (periodo === 'dia') {
+    const dia = document.getElementById('filtro-dia')?.value || diaPadraoFiltro();
+    dataInicio = dia;
+    dataFim = dia;
   } else if (periodo === 'custom') {
     dataInicio = document.getElementById('filtro-data-de')?.value || `${anoAtual}-01-01`;
     dataFim = document.getElementById('filtro-data-ate')?.value || `${anoAtual}-12-31`;
@@ -2585,8 +2598,31 @@ function toggleFiltros() {
   }
 }
 
+// Dia sugerido ao escolher "Um dia": hoje, se estiver no mês exibido; senão, o dia 1
+function diaPadraoFiltro() {
+  const h = new Date();
+  const hojeStr = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+  const mesStr = `${anoAtual}-${String(mesAtual).padStart(2,'0')}`;
+  return hojeStr.startsWith(mesStr) ? hojeStr : `${mesStr}-01`;
+}
+
+// Avança ou volta um dia no filtro
+function passoFiltroDia(n) {
+  const inp = document.getElementById('filtro-dia');
+  const d = new Date((inp.value || diaPadraoFiltro()) + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  inp.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  renderizarLancamentos();
+}
+
 function togglePeriodoCustom() {
   const periodo = document.getElementById('filtro-periodo')?.value;
+  const diaWrap = document.getElementById('filtro-dia-wrap');
+  if (diaWrap) {
+    diaWrap.classList.toggle('hidden', periodo !== 'dia');
+    const inpDia = document.getElementById('filtro-dia');
+    if (periodo === 'dia' && inpDia && !inpDia.value) inpDia.value = diaPadraoFiltro();
+  }
   const customDates = document.getElementById('filtro-datas-custom');
   if (!customDates) return;
   if (periodo === 'custom') {
@@ -2614,7 +2650,7 @@ function atualizarFiltroSubcategoria() {
 }
 
 function limparFiltros() {
-  const ids = ['filtro-periodo','filtro-tipo','filtro-forma','filtro-cartao','filtro-categoria','filtro-subcategoria','filtro-favorecido','filtro-busca','filtro-data-de','filtro-data-ate'];
+  const ids = ['filtro-periodo','filtro-tipo','filtro-forma','filtro-cartao','filtro-categoria','filtro-subcategoria','filtro-favorecido','filtro-busca','filtro-data-de','filtro-data-ate','filtro-dia'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = id === 'filtro-periodo' ? 'mes' : '';
@@ -2622,6 +2658,7 @@ function limparFiltros() {
   setFavCombo('filtro-favorecido', '');
   const customDates = document.getElementById('filtro-datas-custom');
   if (customDates) { customDates.classList.add('hidden'); customDates.style.display = 'none'; }
+  document.getElementById('filtro-dia-wrap')?.classList.add('hidden');
   renderizarLancamentos();
 }
 
@@ -4970,6 +5007,24 @@ async function renderizarExtrato(opts = {}) {
   let saldoAcum = saldoAnteriorMes;
   let htmlLanc = '';
 
+  // Dia filtrado (o saldo acumulado continua considerando todos os dias anteriores)
+  const chaveFiltro = `${conta.id}|${anoAtual}-${mesAtual}`;
+  const diaFiltro = (extratoFiltroDia.chave === chaveFiltro && grupos[extratoFiltroDia.dia]) ? extratoFiltroDia.dia : '';
+  const diasMes = Object.keys(grupos).sort();
+  const htmlFiltroDia = diasMes.length > 1 ? `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <span style="font-size:13px;color:#64748b;white-space:nowrap;">📅 Dia</span>
+      <select onchange="filtrarDiaExtrato(this.value)" style="flex:1;margin:0;">
+        <option value="">Todos os dias (${diasMes.length})</option>
+        ${diasMes.map(d => {
+          const dt = new Date(d + 'T12:00:00');
+          const sem = dt.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+          const n = grupos[d].length;
+          return `<option value="${d}" ${d === diaFiltro ? 'selected' : ''}>${d.slice(8,10)}/${d.slice(5,7)} · ${sem} · ${n} ${n === 1 ? 'lançamento' : 'lançamentos'}</option>`;
+        }).join('')}
+      </select>
+    </div>` : '';
+
   if (lancamentos.length === 0) {
     htmlLanc = `<div style="text-align:center;padding:40px;color:#94a3b8;">
       <div style="font-size:40px;margin-bottom:12px;">📋</div>
@@ -4981,6 +5036,7 @@ async function renderizarExtrato(opts = {}) {
       const grupo = grupos[data];
       const movDia = grupo.reduce((s, l) => s + (l.tipo === 'receita' ? Number(l.valor) : -Number(l.valor)), 0);
       saldoAcum += movDia;
+      if (diaFiltro && data !== diaFiltro) return;
       const dt = new Date(data + 'T12:00:00');
       const dataBR = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).toUpperCase();
       const corSaldoDia = saldoAcum >= 0 ? '#059669' : '#dc2626';
@@ -5092,10 +5148,18 @@ async function renderizarExtrato(opts = {}) {
         ? `<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Faltam ${R$(valorFaltante)} a conferir</div>`
         : `<div style="font-size:12px;color:#059669;margin-top:6px;">Tudo conferido! ✓</div>`}
     </div>` : ''}
+    ${htmlFiltroDia}
     ${htmlLanc}`;
 
   // Volta para onde o usuário estava antes da atualização
   if (opts.preservarScroll && scrollY != null) window.scrollTo(0, scrollY);
+}
+
+// Filtro de dia do Extrato: vale só para a conta e o mês em que foi escolhido
+let extratoFiltroDia = { chave: '', dia: '' };
+function filtrarDiaExtrato(dia) {
+  extratoFiltroDia = { chave: `${extratoContaAtual}|${anoAtual}-${mesAtual}`, dia };
+  renderizarExtrato();
 }
 
 function trocarContaExtrato(id) {
