@@ -1089,6 +1089,14 @@
       <!-- campo holerite_tipo removido — holerite usa campos fixos automáticos -->
       <input type="hidden" id="cat-holerite-tipo" value="" />
 
+      <div id="cat-fora-group" style="margin-top:14px;background:#f0f9ff;border-radius:10px;padding:10px 12px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;color:#0c4a6e;font-weight:600;margin:0;">
+          <input type="checkbox" id="cat-fora-controle" style="width:18px;height:18px;accent-color:#0369a1;" />
+          🤝 Fora do controle mensal
+        </label>
+        <div style="font-size:12px;color:#0369a1;margin-top:4px;" id="cat-fora-ajuda">Dinheiro de terceiros que passa pela sua conta: não entra em receitas, despesas, orçamento nem relatório, mas continua no saldo da conta.</div>
+      </div>
+
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
       <button class="btn-secondary" onclick="fecharModal('modal-categoria')">Cancelar</button>
@@ -1274,6 +1282,7 @@ let favorecidos = [];
 let grupos = [];
 let recorrencias = [];
 let regras = [];
+let recorrenciaIdEditando = null;   // recorrência do lançamento em edição (se houver)
 
 let lancamentoEditandoId = null;
 let parcelaGrupoEditando = null; // parcela_grupo_id do lançamento em edição (se for parcelado)
@@ -2090,7 +2099,7 @@ async function renderizarDashboard() {
 
   // Detalhamento do holerite (__hol__) é só referência: não conta como receita/despesa.
   // O salário líquido é lançado manualmente como uma receita normal.
-  const lancReais = (lancDados || []).filter(l => l.observacao !== '__hol__');
+  const lancReais = (lancDados || []).filter(l => !foraDoMes(l));
   const receitas = lancReais.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
   const despesas = lancReais.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
   const saldo = receitas - despesas;
@@ -2513,8 +2522,11 @@ async function _renderizarLancamentosBase() {
   const resumoEl = document.getElementById('lancamentos-resumo');
   if (resumoEl) {
     if (lancamentos.length > 0) {
-      const totalDespesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
-      const totalReceitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+      const doMes = lancamentos.filter(l => !categoriaForaDoControle(l.categoria_id));
+      const totalDespesas = doMes.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
+      const totalReceitas = doMes.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+      const terceiros = lancamentos.filter(l => categoriaForaDoControle(l.categoria_id));
+      const liqTerceiros = terceiros.reduce((s, l) => s + (l.tipo === 'receita' ? 1 : -1) * Number(l.valor), 0);
       const totalTransf = lancamentos.filter(l => l.tipo === 'transferencia').reduce((s, l) => s + Number(l.valor), 0);
       resumoEl.style.display = 'block';
       resumoEl.innerHTML = `<div class="card" style="padding:12px 16px;display:flex;justify-content:space-between;font-size:13px;flex-wrap:wrap;gap:6px;">
@@ -2522,6 +2534,7 @@ async function _renderizarLancamentosBase() {
         <span style="color:#64748b;">${lancamentos.length} lançamentos</span>
         <span style="color:#dc2626;font-weight:600;">↓ ${R$(totalDespesas)}</span>
         ${totalTransf > 0 ? `<span style="color:#7c3aed;font-weight:600;">🔄 ${R$(totalTransf)}</span>` : ''}
+        ${terceiros.length ? `<span style="color:#0369a1;font-weight:600;width:100%;font-size:12px;">🤝 Terceiros (fora do controle): ${liqTerceiros >= 0 ? '+' : '−'} ${R$(Math.abs(liqTerceiros))}</span>` : ''}
       </div>`;
     } else {
       resumoEl.style.display = 'none';
@@ -2664,6 +2677,10 @@ function limparFiltros() {
 function abrirModalLancamento() {
   lancamentoEditandoId = null;
   parcelaGrupoEditando = null;
+  recorrenciaIdEditando = null;
+  const _chkRec = document.getElementById('lanc-recorrente');
+  if (_chkRec) _chkRec.disabled = false;
+  document.getElementById('lanc-recorrente-group')?.classList.remove('hidden');
   document.getElementById('lanc-parcela-grupo-opcao').classList.add('hidden');
   document.getElementById('lanc-aplicar-todas').checked = false;
   document.getElementById('lanc-id').value = '';
@@ -2728,6 +2745,12 @@ async function editarLancamento(id) {
     document.getElementById('lanc-btn-excluir-daqui').classList.add('hidden');
     document.getElementById('lanc-btn-adiar-parcelas').classList.add('hidden');
   }
+  // Recorrência: já recorrente → marcada e travada; parcela → não se aplica; avulso → pode virar recorrente
+  recorrenciaIdEditando = l.recorrencia_id || null;
+  const chkRec = document.getElementById('lanc-recorrente');
+  chkRec.checked = !!l.recorrencia_id;
+  chkRec.disabled = !!l.recorrencia_id;
+  document.getElementById('lanc-recorrente-group').classList.toggle('hidden', !!parcelaGrupoEditando);
   // Rateio não se aplica na edição de um item já existente
   document.getElementById('lanc-rateio').checked = false;
   document.getElementById('lanc-rateio-toggle-group').classList.add('hidden');
@@ -3165,13 +3188,31 @@ async function salvarLancamento() {
       if (error) { toast('Erro ao salvar', 'erro'); return; }
       toast('Lançamento atualizado!', 'ok');
     }
+  }
+  // Edição: marcar "Repete todo mês" num lançamento já existente cria a recorrência e vincula este lançamento
+  if (id && ehRecorrente && !recorrenciaIdEditando && !parcelaGrupoEditando) {
+    const uid = (await sb.auth.getUser()).data.user.id;
+    const { data: rec, error: errRec } = await sb.from('recorrencias').insert({
+      user_id: uid, favorecido_id: favId, categoria_id: catId, valor, tipo,
+      cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma,
+      dia_do_mes: parseInt(data.split('-')[2]), ativa: true
+    }).select().single();
+    if (errRec) { toast('Lançamento salvo, mas houve erro ao criar a recorrência', 'erro'); }
+    else {
+      await sb.from('lancamentos').update({ recorrencia_id: rec.id }).eq('id', id);
+      await carregarRecorrencias();
+      toast('Agora este lançamento se repete todo mês 🔁', 'ok');
+    }
+  }
+  if (id) {
+    // (edição concluída acima)
   } else if (ehRecorrente) {
     // Cria a recorrência e já lança o mês atual
     const uid = (await sb.auth.getUser()).data.user.id;
     const diaDaData = parseInt(data.split('-')[2]);
     const { data: rec, error: errRec } = await sb.from('recorrencias').insert({
       user_id: uid, favorecido_id: favId, categoria_id: catId, valor, tipo,
-      cartao_id: cartaoId, forma_pagamento: forma, dia_do_mes: diaDaData, ativa: true
+      cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, dia_do_mes: diaDaData, ativa: true
     }).select().single();
     if (errRec) { toast('Erro ao criar recorrência', 'erro'); return; }
     // Lançamento do mês atual vinculado
@@ -3767,7 +3808,7 @@ function popularSelectCategoriasOrcamento() {
   sel.innerHTML = '<option value="">Selecione...</option>';
   const holIds = idsCategoriasHolerite();
   ['despesa', 'receita'].forEach(tipo => {
-    const cats = categorias.filter(c => !c.parent_id && c.tipo === tipo && !holIds.has(c.id));
+    const cats = categorias.filter(c => !c.parent_id && c.tipo === tipo && !holIds.has(c.id) && !categoriaForaDoControle(c.id));
     if (cats.length === 0) return;
     const grp = document.createElement('optgroup');
     grp.label = tipo === 'despesa' ? '📉 Despesas' : '📈 Receitas';
@@ -3827,9 +3868,29 @@ function montarGruposOrcamento(orcLista) {
 
 // IDs das categorias usadas pelo holerite (identificadas pelo nome em HOL_FIELDS).
 // Servem para nunca aparecerem no Orçamento — são apenas referência.
-function idsCategoriasHolerite() {
+// Categorias do holerite: nome de item do holerite E (na raiz ou dentro de uma categoria "... holerite").
+// Uma categoria pessoal com o mesmo nome (ex.: Seguro de vida em Despesas pessoais) não é afetada.
+function _ehCatHolerite(c) {
   const nomes = new Set(HOL_FIELDS.map(f => (f.catNome || '').toLowerCase().trim()));
-  return new Set((categorias || []).filter(c => nomes.has((c.nome || '').toLowerCase().trim())).map(c => c.id));
+  if (!nomes.has((c.nome || '').toLowerCase().trim())) return false;
+  if (!c.parent_id) return true;
+  const pai = (categorias || []).find(x => x.id === c.parent_id);
+  return /holerite/i.test(pai?.nome || '');
+}
+// Categoria marcada como "fora do controle mensal" (dinheiro de terceiros), própria ou herdada do pai
+function categoriaForaDoControle(catId) {
+  if (!catId) return false;
+  const c = (categorias || []).find(x => x.id === catId);
+  if (!c) return false;
+  if (c.fora_do_controle) return true;
+  const pai = c.parent_id ? categorias.find(x => x.id === c.parent_id) : null;
+  return !!pai?.fora_do_controle;
+}
+// Não entra nas contas do mês: detalhe de holerite ou dinheiro de terceiros
+function foraDoMes(l) { return l.observacao === '__hol__' || categoriaForaDoControle(l.categoria_id); }
+
+function idsCategoriasHolerite() {
+  return new Set((categorias || []).filter(_ehCatHolerite).map(c => c.id));
 }
 
 async function renderizarOrcamento() {
@@ -3861,9 +3922,9 @@ async function renderizarOrcamento() {
   }
 
   const gastosPorCat = {};
-  (lancDesp || []).forEach(l => { if (l.observacao === '__hol__') return; gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancDesp || []).forEach(l => { if (foraDoMes(l)) return; gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor); });
   const receitasPorCat = {};
-  (lancRec || []).forEach(l => { if (l.observacao === '__hol__') return; receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancRec || []).forEach(l => { if (foraDoMes(l)) return; receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
   const orcDespesa = orcVisivel.filter(o => o.categorias?.tipo === 'despesa');
   const orcReceita = orcVisivel.filter(o => o.categorias?.tipo === 'receita');
@@ -4128,7 +4189,7 @@ function atualizarSubcategoriasOrcamento() {
   const subSel = document.getElementById('orc-subcategoria');
   if (!catId) { subGroup.classList.add('hidden'); return; }
   const holIds = idsCategoriasHolerite();
-  const subs = categorias.filter(c => c.parent_id === catId && !holIds.has(c.id));
+  const subs = categorias.filter(c => c.parent_id === catId && !holIds.has(c.id) && !categoriaForaDoControle(c.id));
   if (subs.length === 0) { subGroup.classList.add('hidden'); return; }
   subSel.innerHTML = '<option value="">Nenhuma (orçar a categoria toda)</option>';
   subs.forEach(c => {
@@ -4253,7 +4314,7 @@ async function renderizarRelatorio() {
 
   // Indexa realizado por categoria (ignora o detalhamento do holerite, que é só referência)
   const realPorCat = {};
-  (lancData || []).filter(l => l.observacao !== '__hol__').forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancData || []).filter(l => !foraDoMes(l)).forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
   // Guarda no estado global para trocarAba usar sem re-fetch
   window._relOrcPorCat  = orcPorCat;
@@ -4905,8 +4966,13 @@ async function renderizarExtrato(opts = {}) {
       || contas.find(c => c.tipo === 'corrente')?.id || contas[0]?.id;
     const ehPrincipal = conta.id === contaPrincipalId;
 
-    const entLanc = receitasMes;
-    const saiLanc = despesasMes + transferenciasMes;
+    // Dinheiro de terceiros: fica fora do resultado, mas continua no saldo da conta
+    const terc = lancamentos.filter(l => categoriaForaDoControle(l.categoria_id));
+    const tercEnt = terc.filter(l => l.tipo === 'receita').reduce((t, l) => t + Number(l.valor), 0);
+    const tercSai = terc.filter(l => l.tipo !== 'receita').reduce((t, l) => t + Number(l.valor), 0);
+    const tercLiq = tercEnt - tercSai;
+    const entLanc = receitasMes - tercEnt;
+    const saiLanc = despesasMes + transferenciasMes - tercSai;
 
     // Faturas que vencem no mês, pagas por esta conta e ainda não registradas como pagas
     const faturasPrev = [];
@@ -4938,11 +5004,11 @@ async function renderizarExtrato(opts = {}) {
       const holIds = idsCategoriasHolerite();
       const realPorCat = {};
       (lancTodos || []).forEach(l => {
-        if (l.observacao === '__hol__' || !l.categoria_id) return;
+        if (foraDoMes(l) || !l.categoria_id) return;
         realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor);
       });
       for (const o of (orc || [])) {
-        if (holIds.has(o.categoria_id)) continue;
+        if (holIds.has(o.categoria_id) || categoriaForaDoControle(o.categoria_id)) continue;
         const cat = categorias.find(c => c.id === o.categoria_id);
         if (!cat) continue;
         const pai = cat.parent_id ? categorias.find(c => c.id === cat.parent_id) : null;
@@ -4962,7 +5028,7 @@ async function renderizarExtrato(opts = {}) {
     const saiPrev = soma(faturasPrev, 'total') + soma(despOrcPrev, 'falta');
     const entTot = entLanc + entPrev, saiTot = saiLanc + saiPrev;
     const resultado = entTot - saiTot;
-    const saldoPrevisto = saldoAnteriorMes + resultado;
+    const saldoPrevisto = saldoAnteriorMes + resultado + tercLiq;
     const sinal = v => (v >= 0 ? '+ ' : '− ') + R$(Math.abs(v));
 
     const linhaDet = (rot, v) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#64748b;padding:3px 0 3px 10px;"><span>${rot}</span><span style="white-space:nowrap;">${R$(v)}</span></div>`;
@@ -4991,6 +5057,7 @@ async function renderizarExtrato(opts = {}) {
       <div style="background:#f8fafc;border-radius:10px;padding:10px 12px;margin-top:10px;">
         <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Saldo no início do mês</span><span>${R$(saldoAnteriorMes)}</span></div>
         <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Resultado do mês</span><span>${sinal(resultado)}</span></div>
+        ${terc.length ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#0369a1;"><span>🤝 Recursos de terceiros</span><span>${sinal(tercLiq)}</span></div>` : ''}
         <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:6px;">
           <span>${mesPassado ? 'Saldo final' : 'Saldo previsto em ' + ultimoDiaDoMes(anoAtual, mesAtual) + '/' + String(mesAtual).padStart(2, '0')}</span>
           <span style="color:${saldoPrevisto >= 0 ? '#059669' : '#dc2626'};">${R$(saldoPrevisto)}</span>
@@ -5761,7 +5828,9 @@ const HOL_FIELDS = [
 
 // Encontra categoria pelo nome ou cria automaticamente
 async function encontrarOuCriarCatHol(catNome, tipo, icone) {
-  let cat = categorias.find(c => c.nome === catNome && c.tipo === tipo);
+  // Prefere a categoria que está no grupo do holerite; só usa outra com o mesmo nome se não houver
+  const candidatas = categorias.filter(c => c.nome === catNome && c.tipo === tipo);
+  const cat = candidatas.find(_ehCatHolerite) || candidatas[0];
   if (cat) return cat.id;
   const uid = (await sb.auth.getUser()).data.user.id;
   const { data } = await sb.from('categorias').insert({ user_id: uid, nome: catNome, tipo, icone }).select().single();
@@ -6004,10 +6073,10 @@ async function renderizarPoupanca() {
   const { data: configPoupa } = await sb.from('config_poupanca_mensal').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
 
   const percPoupa = configPoupa?.percentual || 0;
-  const { data: lanc } = await sb.from('lancamentos').select('valor, observacao').eq('tipo','receita')
+  const { data: lanc } = await sb.from('lancamentos').select('valor, observacao, categoria_id').eq('tipo','receita')
     .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
     .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`);
-  const totalReceitas = (lanc||[]).filter(l => l.observacao !== '__hol__').reduce((s,l)=>s+Number(l.valor),0);
+  const totalReceitas = (lanc||[]).filter(l => !foraDoMes(l)).reduce((s,l)=>s+Number(l.valor),0);
   const metaMensal = totalReceitas * (percPoupa / 100);
 
   const aportesMes = (aportes||[]).filter(a => a.mes === mesAtual && a.ano === anoAtual);
@@ -6258,7 +6327,7 @@ async function renderizarConfig() {
     return `
       <div style="margin-bottom:8px;background:#f8fafc;border-radius:10px;padding:10px 12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-weight:600;font-size:15px;">${c.icone||'📁'} ${c.nome}</span>
+          <span style="font-weight:600;font-size:15px;">${c.icone||'📁'} ${c.nome}${c.fora_do_controle ? ' <span style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:999px;padding:1px 7px;font-weight:600;">🤝 fora do controle</span>' : ''}</span>
           <div style="display:flex;gap:6px;">
             <button onclick="abrirNovaSubcategoria('${c.id}','${c.tipo}')" style="background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;">+ Subcategoria</button>
             <button onclick="editarCategoria('${c.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;">✏️</button>
@@ -6267,7 +6336,7 @@ async function renderizarConfig() {
         ${subs.length > 0 ? `<div style="margin-top:8px;padding-left:12px;border-left:2px solid #e2e8f0;">
           ${subs.map(s => `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;">
-              <span style="font-size:14px;color:#374151;">${s.icone||'📁'} ${s.nome}</span>
+              <span style="font-size:14px;color:#374151;">${s.icone||'📁'} ${s.nome}${(s.fora_do_controle && !c.fora_do_controle) ? ' <span style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:999px;padding:1px 7px;font-weight:600;">🤝</span>' : ''}</span>
               <button onclick="editarCategoria('${s.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
             </div>`).join('')}
         </div>` : ''}
@@ -6446,6 +6515,20 @@ function abrirSubcatParaImport(i) {
   abrirNovaSubcategoria(catId, cat?.tipo || 'despesa');
 }
 
+// Ajusta a caixa "fora do controle": se o pai já está marcado, a subcategoria herda
+function _prepararForaControle(marcado, parentId) {
+  const chk = document.getElementById('cat-fora-controle');
+  const ajuda = document.getElementById('cat-fora-ajuda');
+  const pai = parentId ? categorias.find(c => c.id === parentId) : null;
+  if (pai?.fora_do_controle) {
+    chk.checked = true; chk.disabled = true;
+    ajuda.textContent = `Herdado de "${pai.nome}": toda a categoria está fora do controle mensal.`;
+  } else {
+    chk.checked = !!marcado; chk.disabled = false;
+    ajuda.textContent = 'Dinheiro de terceiros que passa pela sua conta: não entra em receitas, despesas, orçamento nem relatório, mas continua no saldo da conta.';
+  }
+}
+
 function abrirModalCategoria(tipoDefault = 'despesa') {
   document.getElementById('cat-id').value = '';
   document.getElementById('modal-cat-titulo').textContent = 'Nova Categoria';
@@ -6453,6 +6536,7 @@ function abrirModalCategoria(tipoDefault = 'despesa') {
   document.getElementById('cat-icone').value = '📁';
   document.getElementById('cat-icone-preview').textContent = '📁';
   document.getElementById('cat-holerite-tipo').value = '';
+  _prepararForaControle(false, null);
   document.getElementById('cat-btn-excluir').classList.add('hidden');
   document.getElementById('cat-tipo-group').classList.remove('hidden');
   document.getElementById('cat-parent-group').classList.add('hidden');
@@ -6467,6 +6551,7 @@ function abrirNovaSubcategoria(parentId, tipo) {
   document.getElementById('cat-icone').value = '📁';
   document.getElementById('cat-icone-preview').textContent = '📁';
   document.getElementById('cat-holerite-tipo').value = '';
+  _prepararForaControle(false, parentId);
   document.getElementById('cat-btn-excluir').classList.add('hidden');
   document.getElementById('cat-tipo-group').classList.add('hidden');
   document.getElementById('cat-tipo').value = tipo;
@@ -6503,6 +6588,7 @@ async function editarCategoria(id) {
   document.getElementById('cat-icone-preview').textContent = icone;
   document.getElementById('cat-btn-excluir').classList.remove('hidden');
   document.getElementById('cat-btn-mover').style.display = c.parent_id ? '' : 'none';
+  _prepararForaControle(c.fora_do_controle, c.parent_id);
   if (c.parent_id) {
     // É subcategoria: mostra seletor de pai, esconde tipo
     document.getElementById('cat-tipo-group').classList.add('hidden');
@@ -6540,13 +6626,16 @@ async function salvarCategoria() {
     : document.getElementById('cat-tipo').value;
   const uid = (await sb.auth.getUser()).data.user.id;
   let newId = null;
+  const extra = {};
+  const chkFora = document.getElementById('cat-fora-controle');
+  if ((categorias[0] && 'fora_do_controle' in categorias[0]) && chkFora && !chkFora.disabled) extra.fora_do_controle = chkFora.checked;
   if (id) {
-    const { error } = await sb.from('categorias').update({ nome, icone, tipo, parent_id: parentId }).eq('id', id);
+    const { error } = await sb.from('categorias').update({ nome, icone, tipo, parent_id: parentId, ...extra }).eq('id', id);
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     newId = id;
     toast('Categoria atualizada!', 'ok');
   } else {
-    const { data, error } = await sb.from('categorias').insert({ user_id: uid, nome, icone, tipo, parent_id: parentId }).select().single();
+    const { data, error } = await sb.from('categorias').insert({ user_id: uid, nome, icone, tipo, parent_id: parentId, ...extra }).select().single();
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     newId = data?.id;
     toast('Categoria criada!', 'ok');
