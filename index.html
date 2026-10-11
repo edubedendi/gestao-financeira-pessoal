@@ -339,6 +339,8 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;" id="rel-resumo-cards"></div>
       <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-resultado"></div>
       <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-barras"></div>
+      <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-desempenho"></div>
+      <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-naoorcado"></div>
       <div class="card" style="padding:16px;" id="rel-resumo-top"></div>
     </div>
 
@@ -4505,6 +4507,127 @@ function toggleGrupoDetalhe(grupoId) {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
+// ============================================================
+// DESEMPENHO DO ORÇADO E REALIZADO SEM ORÇAMENTO
+// Unidade orçada = categoria (ou subcategoria) com valor planejado.
+// Orçamento numa categoria principal cobre as subcategorias dela sem orçamento próprio.
+// ============================================================
+function _analisarOrcado(orcPorCat, realPorCat, tipo) {
+  const holIds = idsCategoriasHolerite();
+  const cats = categorias.filter(c => c.tipo === tipo && !holIds.has(c.id) && !categoriaForaDoControle(c.id));
+  const temOrc = id => (orcPorCat[id] || 0) > 0;
+  const unidades = [], naoOrc = [];
+  for (const pai of cats.filter(c => !c.parent_id)) {
+    const subs = cats.filter(c => c.parent_id === pai.id);
+    const paiOrc = temOrc(pai.id);
+    if (paiOrc) {
+      const real = (realPorCat[pai.id] || 0) + subs.filter(sb_ => !temOrc(sb_.id)).reduce((t, sb_) => t + (realPorCat[sb_.id] || 0), 0);
+      unidades.push({ nome: `${pai.icone || '📁'} ${pai.nome}`, orc: orcPorCat[pai.id], real });
+    } else if ((realPorCat[pai.id] || 0) !== 0) {   // inclui estornos (valores negativos)
+      naoOrc.push({ nome: `${pai.icone || '📁'} ${pai.nome}`, real: realPorCat[pai.id] });
+    }
+    for (const sc of subs) {
+      const r = realPorCat[sc.id] || 0;
+      if (temOrc(sc.id)) unidades.push({ nome: `${pai.nome} › ${sc.nome}`, orc: orcPorCat[sc.id], real: r });
+      else if (!paiOrc && r !== 0) naoOrc.push({ nome: `${pai.nome} › ${sc.nome}`, real: r });
+    }
+  }
+  return { unidades, naoOrc };
+}
+
+function _renderizarDesempenhoOrcado(orcPorCat, realPorCat) {
+  const elD = document.getElementById('rel-resumo-desempenho');
+  const elN = document.getElementById('rel-resumo-naoorcado');
+  if (!elD || !elN) return;
+
+  const hoje = new Date();
+  const mesCorrente = relAno === hoje.getFullYear() && relMes === hoje.getMonth() + 1;
+  const desp = _analisarOrcado(orcPorCat, realPorCat, 'despesa');
+  const rec  = _analisarOrcado(orcPorCat, realPorCat, 'receita');
+
+  // ── Card 1: desempenho dos itens orçados ──
+  const faixa = u => { const p = u.orc > 0 ? (u.real / u.orc) * 100 : 0; return p > 100 ? 'acima' : p >= 90 ? 'dentro' : 'abaixo'; };
+  const grupos = { abaixo: [], dentro: [], acima: [] };
+  desp.unidades.forEach(u => grupos[faixa(u)].push(u));
+  const orcT = desp.unidades.reduce((t, u) => t + u.orc, 0);
+  const realT = desp.unidades.reduce((t, u) => t + u.real, 0);
+  const sobras = [...grupos.abaixo, ...grupos.dentro].reduce((t, u) => t + (u.orc - u.real), 0);
+  const excessos = grupos.acima.reduce((t, u) => t + (u.real - u.orc), 0);
+  const saldo = orcT - realT;
+
+  if (!desp.unidades.length) {
+    elD.innerHTML = `<div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:6px;">🎯 Desempenho do orçado</div>
+      <div style="font-size:13px;color:#94a3b8;">Nenhuma despesa orçada neste mês.</div>`;
+  } else {
+    let sel;
+    if (saldo >= 0 && excessos === 0) sel = { i: '🟢', t: 'Tudo dentro do orçado', c: '#047857', f: '#d1fae5',
+      m: `Nenhum item ultrapassou. Sobram ${R$(saldo)} no total.` };
+    else if (saldo >= 0) sel = { i: '🟡', t: 'Dentro no total', c: '#b45309', f: '#fef3c7',
+      m: `${grupos.acima.length} ${grupos.acima.length === 1 ? 'item ultrapassou' : 'itens ultrapassaram'} em ${R$(excessos)}, mas as sobras de ${R$(sobras)} compensam. Saldo: ${R$(saldo)}.` };
+    else sel = { i: '🔴', t: 'Acima do orçado', c: '#b91c1c', f: '#fee2e2',
+      m: `Os excessos de ${R$(excessos)} superam as sobras de ${R$(sobras)}. O orçado foi ultrapassado em ${R$(-saldo)}.` };
+
+    const chip = (rot, cor, fundo, lista, valor, sinal) => `
+      <div style="background:${fundo};border-radius:10px;padding:8px;text-align:center;">
+        <div style="font-size:11px;color:${cor};font-weight:700;">${rot}</div>
+        <div style="font-size:18px;font-weight:700;color:${cor};">${lista.length}</div>
+        <div style="font-size:11px;color:${cor};">${sinal}${R$(valor)}</div>
+      </div>`;
+    const somaSobra = l => l.reduce((t, u) => t + (u.orc - u.real), 0);
+    const linhaItem = u => {
+      const p = Math.round((u.real / u.orc) * 100);
+      const dif = u.orc - u.real;
+      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid #f8fafc;">
+        <span style="color:#475569;">${u.nome}</span>
+        <span style="white-space:nowrap;color:#64748b;">${R$(u.real)} / ${R$(u.orc)} · ${p}% · <b style="color:${dif >= 0 ? '#059669' : '#dc2626'};">${dif >= 0 ? 'sobra ' : 'excede '}${R$(Math.abs(dif))}</b></span>
+      </div>`;
+    };
+    const det = (titulo, lista) => lista.length ? `<div style="font-size:12px;font-weight:600;color:#374151;margin-top:8px;">${titulo}</div>` +
+      [...lista].sort((a, b) => (b.real / b.orc) - (a.real / a.orc)).map(linhaItem).join('') : '';
+
+    elD.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:700;color:#374151;">🎯 Desempenho do orçado — despesas</span>
+        <span style="background:${sel.f};color:${sel.c};border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap;">${sel.i} ${sel.t}</span>
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:12px;">${sel.m}${mesCorrente ? ' <i>Mês em andamento: "abaixo" pode ser só o que ainda não foi gasto.</i>' : ''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+        ${chip('Abaixo (&lt;90%)', '#047857', '#ecfdf5', grupos.abaixo, somaSobra(grupos.abaixo), 'sobra ')}
+        ${chip('Dentro (90–100%)', '#b45309', '#fffbeb', grupos.dentro, somaSobra(grupos.dentro), 'sobra ')}
+        ${chip('Ultrapassou', '#b91c1c', '#fef2f2', grupos.acima, excessos, 'excede ')}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Orçado nos itens</span><b style="color:#1e293b;">${R$(orcT)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Realizado nos itens orçados</span><b style="color:#1e293b;">${R$(realT)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;border-top:1px solid #f1f5f9;margin-top:6px;padding-top:6px;">
+        <span style="font-weight:700;">${saldo >= 0 ? 'Sobra no orçado' : 'Excesso no orçado'}</span>
+        <b style="color:${saldo >= 0 ? '#059669' : '#dc2626'};">${R$(Math.abs(saldo))}</b>
+      </div>
+      <details style="margin-top:8px;"><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Ver item a item</summary>
+        ${det('🔴 Ultrapassou', grupos.acima)}${det('🟡 Dentro', grupos.dentro)}${det('🟢 Abaixo', grupos.abaixo)}
+      </details>`;
+  }
+
+  // ── Card 2: realizado sem orçamento ──
+  const totNaoDesp = desp.naoOrc.reduce((t, x) => t + x.real, 0);
+  const totNaoRec  = rec.naoOrc.reduce((t, x) => t + x.real, 0);
+  const totDespGeral = realT + totNaoDesp;
+  const pctNao = totDespGeral > 0 ? Math.round((totNaoDesp / totDespGeral) * 100) : 0;
+  const listaNao = [...desp.naoOrc].sort((a, b) => b.real - a.real).map(x =>
+    `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid #f8fafc;">
+       <span style="color:#475569;">${x.nome}</span><b style="color:#374151;white-space:nowrap;">${R$(x.real)}</b></div>`).join('');
+
+  elN.innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;">📌 Realizado sem orçamento</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span style="font-size:13px;color:#64748b;">Despesas não orçadas</span>
+      <span style="font-size:17px;font-weight:700;color:${totNaoDesp > 0 ? '#dc2626' : '#059669'};">${R$(totNaoDesp)}</span>
+    </div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">${totNaoDesp > 0 ? `${pctNao}% de todas as despesas do mês (${R$(totDespGeral)})` : 'Todas as despesas do mês estavam orçadas.'}</div>
+    ${totNaoRec > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:8px;"><span>Receitas não orçadas</span><b style="color:#059669;">${R$(totNaoRec)}</b></div>` : ''}
+    ${listaNao ? `<details><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Ver por categoria (${desp.naoOrc.length})</summary>${listaNao}</details>` : ''}
+    ${totNaoDesp > 0 ? `<div style="font-size:12px;color:#64748b;margin-top:8px;">💡 Categorias que se repetem aqui todo mês são candidatas a ganhar orçamento próprio.</div>` : ''}`;
+}
+
 function _renderizarRelatorioResumo() {
   const orcPorCat  = window._relOrcPorCat  || {};
   const realPorCat = window._relRealPorCat || {};
@@ -4621,6 +4744,8 @@ function _renderizarRelatorioResumo() {
       <div style="font-size:11px;margin-top:3px;" class="${clsDesp}">${labelDesp}</div>
     </div>
   `;
+
+  _renderizarDesempenhoOrcado(orcPorCat, realPorCat);
 
   // --- Top categorias (todas as de despesa com orc ou realizado, ordenadas por % desc) ---
   const pais = categorias.filter(c => c.tipo === 'despesa' && !c.parent_id);
