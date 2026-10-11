@@ -3244,15 +3244,10 @@ async function salvarLancamento() {
   }
   // Edição: marcar "Repete todo mês" num lançamento já existente cria a recorrência e vincula este lançamento
   if (id && ehRecorrente && !recorrenciaIdEditando && !parcelaGrupoEditando) {
-    const uid = (await sb.auth.getUser()).data.user.id;
-    const { data: rec, error: errRec } = await sb.from('recorrencias').insert({
-      user_id: uid, favorecido_id: favId, categoria_id: catId, valor, tipo,
-      cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma,
-      dia_do_mes: parseInt(data.split('-')[2]), ativa: true
-    }).select().single();
-    if (errRec) { toast('Lançamento salvo, mas houve erro ao criar a recorrência', 'erro'); }
+    // Cria a recorrência a partir do lançamento e vincula os dois numa transação única
+    const { error: errRec } = await sb.rpc('criar_recorrencia_de_lancamento', { p_lanc: id });
+    if (errRec) { toast('Lançamento salvo, mas houve erro ao criar a recorrência: ' + errRec.message, 'erro'); }
     else {
-      await sb.from('lancamentos').update({ recorrencia_id: rec.id }).eq('id', id);
       await carregarRecorrencias();
       toast('Agora este lançamento se repete todo mês 🔁', 'ok');
     }
@@ -3260,20 +3255,17 @@ async function salvarLancamento() {
   if (id) {
     // (edição concluída acima)
   } else if (ehRecorrente) {
-    // Cria a recorrência e já lança o mês atual
+    // Grava o lançamento do mês e o converte em recorrência no banco.
+    // Se a conversão falhar, o lançamento continua salvo como avulso (nada se perde).
     const uid = (await sb.auth.getUser()).data.user.id;
-    const diaDaData = parseInt(data.split('-')[2]);
-    const { data: rec, error: errRec } = await sb.from('recorrencias').insert({
-      user_id: uid, favorecido_id: favId, categoria_id: catId, valor, tipo,
-      cartao_id: cartaoId, conta_id: contaId, forma_pagamento: forma, dia_do_mes: diaDaData, ativa: true
-    }).select().single();
-    if (errRec) { toast('Erro ao criar recorrência', 'erro'); return; }
-    // Lançamento do mês atual vinculado
-    await sb.from('lancamentos').insert({
+    const { data: novo, error: errLanc } = await sb.from('lancamentos').insert({
       user_id: uid, descricao: desc, valor, data, tipo,
       categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId,
-      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra, recorrencia_id: rec.id
-    });
+      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra
+    }).select('id').single();
+    if (errLanc) { toast('Erro ao salvar o lançamento', 'erro'); return; }
+    const { error: errRec } = await sb.rpc('criar_recorrencia_de_lancamento', { p_lanc: novo.id });
+    if (errRec) { toast('Lançamento salvo, mas a recorrência não foi criada: ' + errRec.message, 'erro'); }
     await carregarRecorrencias();
     fecharModal('modal-lancamento');
     navegarPara('lancamentos');
@@ -3423,19 +3415,17 @@ async function confirmarAdiarParcelas() {
   if (!dados || dados.itens.length === 0) { toast('Nada a ' + verbo.toLowerCase(), 'erro'); return; }
   if (!confirm(`${verbo} ${dados.itens.length} parcela(s) em um mês?`)) return;
 
-  // Adiar: da última para a primeira. Antecipar: da primeira para a última.
-  const ordenados = [...dados.itens].sort((a, b) => adiar
-    ? (a.novaData < b.novaData ? 1 : -1)
-    : (a.novaData > b.novaData ? 1 : -1));
-  for (const it of ordenados) {
-    const { error } = await sb.from('lancamentos').update({ data: it.novaData }).eq('id', it.id);
-    if (error) { toast(`Erro ao ${verbo.toLowerCase()}: ` + error.message, 'erro'); return; }
-  }
+  // Move todas as parcelas numa única operação no banco (tudo ou nada; conciliadas ficam onde estão)
+  const { data: qtdMovidas, error } = await sb.rpc('deslocar_parcelas', {
+    p_ids: dados.itens.map(it => it.id), p_meses: adiar ? 1 : -1
+  });
+  if (error) { toast(`Erro ao ${verbo.toLowerCase()}: ` + error.message, 'erro'); return; }
+  const qtd = qtdMovidas ?? dados.itens.length;
 
   window._adiarDados = null;
   fecharModal('modal-adiar-parcelas');
   fecharModal('modal-lancamento');
-  toast(`${ordenados.length} parcela(s) ${adiar ? 'adiada(s)' : 'antecipada(s)'} em 1 mês`, 'ok');
+  toast(`${qtd} parcela(s) ${adiar ? 'adiada(s)' : 'antecipada(s)'} em 1 mês`, 'ok');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
@@ -3948,6 +3938,14 @@ function idsCategoriasHolerite() {
   return new Set((categorias || []).filter(_ehCatHolerite).map(c => c.id));
 }
 
+// Diferença entre planejado e gasto: "Disponível" (verde) ou "Excedeu" (vermelho)
+function _saldoOrcamento(planejado, gasto) {
+  const dif = Number(planejado) - Number(gasto);
+  return dif >= 0
+    ? { rotulo: 'Disponível', valor: dif, cor: '#059669' }
+    : { rotulo: 'Excedeu', valor: -dif, cor: '#dc2626' };
+}
+
 async function renderizarOrcamento() {
   const el = document.getElementById('orcamento-content');
   el.innerHTML = '<div class="spinner"></div>';
@@ -4143,10 +4141,12 @@ async function renderizarOrcamento() {
         <div class="progress-bar" style="margin-bottom:8px;">
           <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:${subsUnificadas.length > 0 ? '12px' : '0'};">
-          <span>Gasto: <strong style="color:${cor}">${R$(gastoTotal)}</strong></span>
-          <span>Planejado: <strong>${R$(planejadoTotal)}</strong></span>
-        </div>
+        ${(() => { const sd = _saldoOrcamento(planejadoTotal, gastoTotal); return `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;margin-bottom:${subsUnificadas.length > 0 ? '12px' : '0'};">
+          <div><div style="font-size:11px;color:#64748b;">Gasto</div><div style="font-weight:700;font-size:14px;color:${cor};">${R$(gastoTotal)}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">${planejadoTotal > 0 ? sd.rotulo : 'Disponível'}</div><div style="font-weight:700;font-size:14px;color:${planejadoTotal > 0 ? sd.cor : '#94a3b8'};">${planejadoTotal > 0 ? R$(sd.valor) : '—'}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">Planejado</div><div style="font-weight:700;font-size:14px;">${R$(planejadoTotal)}</div></div>
+        </div>`; })()}
       </div>`;
 
       if (subsUnificadas.length > 0) {
@@ -4171,8 +4171,10 @@ async function renderizarOrcamento() {
               <div class="progress-bar" style="height:5px;margin-bottom:5px;">
                 <div class="progress-fill" style="width:${pctS}%;background:${corS};"></div>
               </div>` : ''}
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;color:#94a3b8;">
                 <span style="color:${gastoS > 0 ? corS : '#94a3b8'};font-weight:600;">${R$(gastoS)}</span>
+                ${s.valor_planejado > 0 ? (() => { const sd = _saldoOrcamento(s.valor_planejado, gastoS);
+                  return `<span style="color:${sd.cor};font-weight:600;">${sd.rotulo === 'Excedeu' ? 'excedeu' : 'resta'} ${R$(sd.valor)}</span>`; })() : ''}
                 <span>${s.valor_planejado > 0 ? R$(s.valor_planejado) : '+ definir orçamento'}</span>
               </div>
             </div>`;
@@ -4188,18 +4190,20 @@ async function renderizarOrcamento() {
       <div class="progress-bar" style="margin-bottom:8px;">
         <div class="progress-fill" style="width:${Math.min(pctTotal,100)}%;background:${progressCor(pctTotal)};"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;">
-        <span>Gasto: <strong style="color:${progressCor(pctTotal)}">${R$(totalGasto)}</strong></span>
-        <span>Planejado: <strong>${R$(totalPlanejado)}</strong></span>
-      </div>
+      ${(() => { const sd = _saldoOrcamento(totalPlanejado, totalGasto); return `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;font-size:13px;">
+        <div><div style="font-size:11px;color:#64748b;">Gasto</div><strong style="color:${progressCor(pctTotal)}">${R$(totalGasto)}</strong></div>
+        <div><div style="font-size:11px;color:#64748b;">${sd.rotulo}</div><strong style="color:${sd.cor}">${R$(sd.valor)}</strong></div>
+        <div><div style="font-size:11px;color:#64748b;">Planejado</div><strong>${R$(totalPlanejado)}</strong></div>
+      </div>`; })()}
     </div>` + htmlDesp;
   }
 
   // ── CARD RESUMO GERAL ─────────────────────────────────────
   const totalMetaRecGeral   = (orcReceita || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
   const totalPlanDespGeral  = (orcDespesa || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
-  const totalRealRecGeral   = (lancRec  || []).reduce((s, l) => l.observacao === '__hol__' ? s : s + Number(l.valor), 0);
-  const totalRealDespGeral  = (lancDesp || []).reduce((s, l) => l.observacao === '__hol__' ? s : s + Number(l.valor), 0);
+  const totalRealRecGeral   = (lancRec  || []).reduce((s, l) => foraDoMes(l) ? s : s + Number(l.valor), 0);
+  const totalRealDespGeral  = (lancDesp || []).reduce((s, l) => foraDoMes(l) ? s : s + Number(l.valor), 0);
   const saldoOrcado   = totalMetaRecGeral  - totalPlanDespGeral;
   const saldoRealizado = totalRealRecGeral - totalRealDespGeral;
 
@@ -6873,27 +6877,7 @@ function textoUso(u) {
 
 function _rotuloCat(c) { return (c.icone || '📁') + ' ' + c.nome; }
 
-// Aponta tudo que usava a categoria de origem para a de destino
-async function reatribuirCategoria(origemId, destinoId) {
-  for (const tabela of ['lancamentos', 'recorrencias', 'regras_categorizacao']) {
-    const { error } = await sb.from(tabela).update({ categoria_id: destinoId }).eq('categoria_id', origemId);
-    if (error) throw new Error(`${tabela}: ${error.message}`);
-  }
-  // Orçamento: se o destino já tem valor planejado no mesmo mês, soma; senão, transfere
-  const { data: orcOrigem, error: e1 } = await sb.from('orcamento')
-    .select('id, mes, ano, valor_planejado').eq('categoria_id', origemId);
-  if (e1) throw new Error('orcamento: ' + e1.message);
-  for (const o of (orcOrigem || [])) {
-    const { data: existente } = await sb.from('orcamento').select('id, valor_planejado')
-      .eq('categoria_id', destinoId).eq('mes', o.mes).eq('ano', o.ano).maybeSingle();
-    if (existente) {
-      await sb.from('orcamento').update({ valor_planejado: Number(existente.valor_planejado) + Number(o.valor_planejado) }).eq('id', existente.id);
-      await sb.from('orcamento').delete().eq('id', o.id);
-    } else {
-      await sb.from('orcamento').update({ categoria_id: destinoId }).eq('id', o.id);
-    }
-  }
-}
+// (a realocação de categorias agora é feita no banco pela função realocar_categoria)
 
 // --- MOVER subcategoria para outra categoria ---
 async function abrirMoverSubcategoria() {
@@ -7005,9 +6989,8 @@ async function confirmarRealocacao() {
       const conflito = categorias.find(c => c.parent_id === catId && c.id !== origem.id &&
         c.nome.trim().toLowerCase() === origem.nome.trim().toLowerCase());
       if (conflito) {
-        // Unifica: tudo passa para a subcategoria que já existia no destino
-        await reatribuirCategoria(origem.id, conflito.id);
-        const { error } = await sb.from('categorias').delete().eq('id', origem.id);
+        // Unifica numa transação única no banco: transfere tudo e exclui a origem
+        const { error } = await sb.rpc('realocar_categoria', { p_origem: origem.id, p_destino: conflito.id });
         if (error) throw new Error(error.message);
         toast(`Unificada com "${conflito.nome}"`, 'ok');
       } else {
@@ -7022,8 +7005,8 @@ async function confirmarRealocacao() {
       const subId = document.getElementById('realoc-sub').value;
       if (subVisivel && !subId) { toast('Escolha a subcategoria de destino', 'erro'); btn.disabled = false; return; }
       const destinoId = subVisivel ? subId : catId;
-      await reatribuirCategoria(origem.id, destinoId);
-      const { error } = await sb.from('categorias').delete().eq('id', origem.id);
+      // Transfere lançamentos, recorrências, regras e orçamentos e exclui a origem — tudo ou nada
+      const { error } = await sb.rpc('realocar_categoria', { p_origem: origem.id, p_destino: destinoId });
       if (error) throw new Error(error.message);
       const d = categorias.find(c => c.id === destinoId);
       toast(`Lançamentos movidos para "${d?.nome || 'destino'}" e "${origem.nome}" excluída`, 'ok');
