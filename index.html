@@ -526,9 +526,16 @@
             <label>Nº de Parcelas</label>
             <input type="number" id="lanc-parcelas" placeholder="1" min="1" max="99" value="1" oninput="toggleParcelaFields()" />
           </div>
-          <div id="lanc-1a-parcela-group" class="hidden">
-            <label>1ª Parcela em</label>
-            <input type="month" id="lanc-1a-parcela" />
+          <div id="lanc-parcela-inicial-group" class="hidden">
+            <label>Começa na parcela</label>
+            <input type="number" id="lanc-parcela-inicial" min="1" max="99" value="1" oninput="onParcelaInicialChange()" />
+          </div>
+        </div>
+        <div id="lanc-1a-parcela-group" class="hidden" style="margin-top:10px;">
+          <label id="lanc-1a-parcela-label">1ª Parcela em</label>
+          <input type="month" id="lanc-1a-parcela" oninput="atualizarPreviewValorParcela()" />
+          <div id="lanc-parcela-inicial-dica" class="hidden" style="font-size:12px;color:#b45309;margin-top:4px;">
+            Compra em andamento: confira o mês da fatura em que esta parcela aparece. Prefira informar o <b>valor da parcela</b>.
           </div>
         </div>
         <!-- Toggle tipo de valor: aparece só quando parcelas > 1 -->
@@ -2702,6 +2709,11 @@ function abrirModalLancamento() {
   document.getElementById('lanc-recorrente').checked = false;
   document.getElementById('lanc-rateio').checked = false;
   document.getElementById('lanc-parcelas').value = 1;
+  document.getElementById('lanc-parcela-inicial').value = 1;
+  document.getElementById('lanc-parcela-inicial-group').classList.add('hidden');
+  document.getElementById('lanc-parcela-inicial-dica').classList.add('hidden');
+  document.getElementById('lanc-1a-parcela-label').textContent = '1ª Parcela em';
+  document.getElementById('lanc-1a-parcela').dataset.base = '';
   document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
   document.getElementById('lanc-tipo-valor-group').classList.add('hidden');
   document.getElementById('lanc-valor-preview').style.display = 'none';
@@ -2867,6 +2879,8 @@ function setFormaPgto(forma) {
   if (!isCartao) {
     document.getElementById('lanc-cartao').value = '';
     document.getElementById('lanc-parcelas').value = '1';
+    document.getElementById('lanc-parcela-inicial').value = 1;
+    document.getElementById('lanc-parcela-inicial-group').classList.add('hidden');
     document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
     document.getElementById('lanc-fatura-aviso').style.display = 'none';
   }
@@ -2893,7 +2907,8 @@ function calcularFatura() {
   // Sempre atualiza o campo 1ª parcela ao recalcular a fatura
   const campo1aParcela = document.getElementById('lanc-1a-parcela');
   if (campo1aParcela) {
-    campo1aParcela.value = `${anoFatura}-${String(mesFatura).padStart(2,'0')}`;
+    campo1aParcela.dataset.base = `${anoFatura}-${String(mesFatura).padStart(2,'0')}`;
+    campo1aParcela.value = _somarMesesAnoMes(campo1aParcela.dataset.base, getParcelaInicial() - 1);
   }
 }
 
@@ -2909,7 +2924,31 @@ function toggleParcelaFields() {
   const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
   const mostrar = n > 1;
   document.getElementById('lanc-1a-parcela-group').classList.toggle('hidden', !mostrar);
+  document.getElementById('lanc-parcela-inicial-group').classList.toggle('hidden', !mostrar);
   document.getElementById('lanc-tipo-valor-group').classList.toggle('hidden', !mostrar);
+  onParcelaInicialChange(false);
+}
+
+// Parcela inicial: limita entre 1 e o total, ajusta rótulo, dica e o mês sugerido
+function getParcelaInicial() {
+  const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
+  const ini = parseInt(document.getElementById('lanc-parcela-inicial').value) || 1;
+  return Math.min(Math.max(ini, 1), Math.max(n, 1));
+}
+function _somarMesesAnoMes(anoMes, k) {
+  const [a, m] = anoMes.split('-').map(Number);
+  const t = a * 12 + (m - 1) + k;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+function onParcelaInicialChange(reposicionarMes = true) {
+  const ini = getParcelaInicial();
+  const campoIni = document.getElementById('lanc-parcela-inicial');
+  if (campoIni && campoIni.value !== '' && Number(campoIni.value) !== ini) campoIni.value = ini;
+  document.getElementById('lanc-1a-parcela-label').textContent = ini > 1 ? `Parcela ${ini} em` : '1ª Parcela em';
+  document.getElementById('lanc-parcela-inicial-dica').classList.toggle('hidden', ini <= 1);
+  // Desloca o mês sugerido pela data da compra para o mês da parcela inicial
+  const campoMes = document.getElementById('lanc-1a-parcela');
+  if (reposicionarMes && campoMes?.dataset.base) campoMes.value = _somarMesesAnoMes(campoMes.dataset.base, ini - 1);
   atualizarPreviewValorParcela();
 }
 
@@ -2953,11 +2992,16 @@ function atualizarPreviewValorParcela() {
   const valor = parseFloat(document.getElementById('lanc-valor').value) || 0;
   if (n <= 1 || valor <= 0) { preview.style.display = 'none'; return; }
   const tipo = getTipoValorParcela();
-  if (tipo === 'total') {
-    const vParc = Math.round(valor / n * 100) / 100;
+  const ini = getParcelaInicial();
+  const vParc = tipo === 'total' ? Math.round(valor / n * 100) / 100 : Math.round(valor * 100) / 100;
+  const vTotal = tipo === 'total' ? Math.round(valor * 100) / 100 : Math.round(valor * n * 100) / 100;
+  if (ini > 1) {
+    const qtd = n - ini + 1;
+    const restante = Math.round((vTotal - vParc * (ini - 1)) * 100) / 100;
+    preview.textContent = `→ cria as parcelas ${ini} a ${n}: ${qtd}× de ${R$(vParc)} · restante ${R$(restante)} de ${R$(vTotal)}`;
+  } else if (tipo === 'total') {
     preview.textContent = `→ ${n}× de ${R$(vParc)}`;
   } else {
-    const vTotal = Math.round(valor * n * 100) / 100;
     preview.textContent = `→ Total: ${R$(vTotal)}`;
   }
   preview.style.display = 'block';
@@ -3010,6 +3054,7 @@ function toggleRateio() {
     document.getElementById('lanc-recorrente').checked = false;
     document.getElementById('lanc-parcelas-group').classList.add('hidden');
     document.getElementById('lanc-parcelas').value = 1;
+    document.getElementById('lanc-parcela-inicial').value = 1;
     document.getElementById('rateio-rows').innerHTML = '';
     rateioSeq = 0;
     adicionarLinhaRateio();
@@ -3238,7 +3283,8 @@ async function salvarLancamento() {
   } else if (parcelas > 1 && tipo === 'despesa') {
     // Parcelado
     const mesInicio = document.getElementById('lanc-1a-parcela').value;
-    if (!mesInicio) { toast('Informe o mês da 1ª parcela', 'erro'); return; }
+    const parcIni = getParcelaInicial();   // 1 = compra nova; >1 = compra em andamento
+    if (!mesInicio) { toast(parcIni > 1 ? `Informe o mês da parcela ${parcIni}` : 'Informe o mês da 1ª parcela', 'erro'); return; }
     const [anoP, mesP] = mesInicio.split('-').map(Number);
     const parcelaGrupoId = crypto.randomUUID();
     // Arredonda cada parcela para 2 casas decimais; a última absorve o centavo restante
@@ -3252,8 +3298,9 @@ async function salvarLancamento() {
     const valorUltimaParcela = Math.round((valorTotal - valorParcelaBase * (parcelas - 1)) * 100) / 100;
     const inserts = [];
     const uid = (await sb.auth.getUser()).data.user.id;
-    for (let i = 0; i < parcelas; i++) {
-      const totalMes = (mesP - 1) + i;
+    // O mês informado é o da parcela inicial; parcelas anteriores não são criadas
+    for (let i = parcIni - 1; i < parcelas; i++) {
+      const totalMes = (mesP - 1) + (i - (parcIni - 1));
       const anoParc = anoP + Math.floor(totalMes / 12);
       const mesParc = (totalMes % 12) + 1;
       const dataParc = `${anoParc}-${String(mesParc).padStart(2,'0')}-15`;
@@ -3271,7 +3318,7 @@ async function salvarLancamento() {
     if (error) { toast('Erro ao salvar parcelas', 'erro'); return; }
     const mesVis = `${anoAtual}-${String(mesAtual).padStart(2,'0')}`;
     idDestaque = (insParc || []).find(p => String(p.data).slice(0,7) === mesVis)?.id || insParc?.[0]?.id || null;
-    toast(`${parcelas} parcelas criadas!`, 'ok');
+    toast(parcIni > 1 ? `Parcelas ${parcIni} a ${parcelas} criadas!` : `${parcelas} parcelas criadas!`, 'ok');
   } else {
     // Simples
     const uid = (await sb.auth.getUser()).data.user.id;
