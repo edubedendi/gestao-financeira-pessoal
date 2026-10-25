@@ -1,18 +1,31 @@
-name: Supabase keep-alive
+name: Alerta diário + keep-alive
 
 on:
   schedule:
-    - cron: '0 12 */2 * *'
+    - cron: '0 15 * * *'   # todo dia às 15:00 UTC = 12:00 de Brasília
   workflow_dispatch:
 
 jobs:
-  ping:
+  alerta:
     runs-on: ubuntu-latest
     steps:
-      - name: Consulta leve no Supabase
+      - name: Chama o alerta diário no Supabase (até 4 tentativas)
+        id: chamada
         run: |
-          curl -sfS -o /dev/null -w "HTTP %{http_code}\n" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/cartoes" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+          set +e
+          RESP=$(curl -sS --max-time 60 --retry 3 --retry-delay 20 --retry-all-errors \
+            -X POST "${{ secrets.SUPABASE_URL }}/functions/v1/alerta-diario" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Range: 0-0"
+            -H "Content-Type: application/json" -d '{}' -w '\n%{http_code}')
+          CODIGO=$(echo "$RESP" | tail -n1)
+          echo "codigo=$CODIGO" >> "$GITHUB_OUTPUT"
+          echo "Resposta HTTP $CODIGO"
+          echo "$RESP" | head -n -1 | head -c 300
+          [ "$CODIGO" = "200" ]
+
+      - name: Avisa no Telegram se o Supabase não respondeu
+        if: failure()
+        run: |
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "text=⚠️ O alerta diário das finanças falhou (código ${{ steps.chamada.outputs.codigo }}), mesmo após 4 tentativas. O Supabase pode estar pausado: abra supabase.com/dashboard, entre no projeto financas-pessoais-br e, se aparecer o aviso de pausa, clique em Restore project. Detalhes na aba Actions do GitHub."
