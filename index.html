@@ -53,6 +53,10 @@
     .bottom-nav button span.icon { font-size: 20px; }
     .page { display: none; padding: 16px; padding-bottom: 90px; max-width: 480px; margin: 0 auto; }
     .page.active { display: block; }
+    /* Barra de ações da tela de Lançamentos: fica presa no topo ao rolar, sem cobrir a lista */
+    .lanc-topo { position: sticky; top: var(--topo-app, 0px); z-index: 29; background: #f1f5f9;
+                 margin: -16px -16px 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+    .lanc-topo.rolado { box-shadow: 0 4px 10px rgba(15,23,42,0.08); }
     #auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
     .divider { text-align: center; color: #94a3b8; font-size: 13px; margin: 16px 0; position: relative; }
     .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #e2e8f0; }
@@ -122,7 +126,7 @@
 <div id="app-screen" class="hidden">
 
   <!-- HEADER -->
-  <div style="background:#4f46e5;color:white;padding:16px;position:sticky;top:0;z-index:30;">
+  <div id="cabecalho-app" style="background:#4f46e5;color:white;padding:16px;position:sticky;top:0;z-index:30;">
     <div style="max-width:480px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;">
       <div>
         <div style="font-size:12px;opacity:0.8;" id="header-saudacao">Olá!</div>
@@ -146,7 +150,7 @@
   </div>
 
   <div id="page-lancamentos" class="page">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div class="lanc-topo" id="lanc-topo">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Lançamentos</h2>
       <div style="display:flex;gap:8px;">
         <button class="btn-secondary btn-sm" onclick="toggleFiltros()" id="btn-filtros">🔍 Filtros</button>
@@ -160,6 +164,7 @@
           <label>Período</label>
           <select id="filtro-periodo" onchange="togglePeriodoCustom();renderizarLancamentos()">
             <option value="mes">Mês atual</option>
+            <option value="dia">Um dia</option>
             <option value="mes_anterior">Mês anterior</option>
             <option value="3meses">Últimos 3 meses</option>
             <option value="ano">Este ano</option>
@@ -174,6 +179,14 @@
             <option value="receita">Receita</option>
             <option value="transferencia">Transferência</option>
           </select>
+        </div>
+      </div>
+      <div id="filtro-dia-wrap" class="hidden" style="margin-bottom:10px;">
+        <label>Dia</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button type="button" class="btn-secondary" style="width:auto;padding:8px 12px;" onclick="passoFiltroDia(-1)">‹</button>
+          <input type="date" id="filtro-dia" onchange="renderizarLancamentos()" style="flex:1;" />
+          <button type="button" class="btn-secondary" style="width:auto;padding:8px 12px;" onclick="passoFiltroDia(1)">›</button>
         </div>
       </div>
       <div id="filtro-datas-custom" class="hidden" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
@@ -319,6 +332,7 @@
       <button class="tab-btn"        style="flex:1;" id="rel-tab-despesas"  onclick="relatorioTrocarAba('despesa')">Despesas</button>
       <button class="tab-btn"        style="flex:1;" id="rel-tab-receitas"  onclick="relatorioTrocarAba('receita')">Receitas</button>
       <button class="tab-btn"        style="flex:1;" id="rel-tab-grupos"    onclick="relatorioTrocarAba('grupos')">Grupos</button>
+      <button class="tab-btn"        style="flex:1;" id="rel-tab-terceiros" onclick="relatorioTrocarAba('terceiros')">Terceiros</button>
     </div>
 
     <!-- ABA RESUMO -->
@@ -326,6 +340,8 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;" id="rel-resumo-cards"></div>
       <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-resultado"></div>
       <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-barras"></div>
+      <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-desempenho"></div>
+      <div class="card" style="padding:16px;margin-bottom:14px;" id="rel-resumo-naoorcado"></div>
       <div class="card" style="padding:16px;" id="rel-resumo-top"></div>
     </div>
 
@@ -341,6 +357,9 @@
     </div>
 
     <!-- ABA GRUPOS -->
+    <div id="rel-aba-terceiros" style="display:none;">
+      <div id="rel-terceiros-conteudo"></div>
+    </div>
     <div id="rel-aba-grupos" style="display:none;">
       <p style="font-size:12px;color:#94a3b8;margin:0 0 12px;">Total gasto por grupo (todas as despesas, independente do mês). Toque em um grupo para ver o detalhe.</p>
       <div id="rel-grupos-lista"></div>
@@ -352,26 +371,26 @@
     <button onclick="navegarPara('dashboard')" id="nav-dashboard" class="active">
       <span class="icon">🏠</span><span>Início</span>
     </button>
-    <button onclick="navegarPara('lancamentos')" id="nav-lancamentos">
-      <span class="icon">📝</span><span>Lançamentos</span>
-    </button>
     <button onclick="navegarPara('orcamento')" id="nav-orcamento">
       <span class="icon">📊</span><span>Orçamento</span>
     </button>
-    <button onclick="navegarPara('cartoes')" id="nav-cartoes">
-      <span class="icon">💳</span><span>Cartões</span>
+    <button onclick="navegarPara('lancamentos')" id="nav-lancamentos">
+      <span class="icon">📝</span><span>Lançamentos</span>
     </button>
-    <button onclick="navegarPara('holerite')" id="nav-holerite">
-      <span class="icon">📄</span><span>Holerite</span>
-    </button>
-    <button onclick="navegarPara('poupanca')" id="nav-poupanca">
-      <span class="icon">🎯</span><span>Poupança</span>
+    <button onclick="navegarPara('extrato')" id="nav-extrato">
+      <span class="icon">🏦</span><span>Extrato</span>
     </button>
     <button onclick="navegarPara('relatorio')" id="nav-relatorio">
       <span class="icon">📈</span><span>Relatório</span>
     </button>
-    <button onclick="navegarPara('extrato')" id="nav-extrato">
-      <span class="icon">🏦</span><span>Extrato</span>
+    <button onclick="navegarPara('cartoes')" id="nav-cartoes">
+      <span class="icon">💳</span><span>Cartões</span>
+    </button>
+    <button onclick="navegarPara('poupanca')" id="nav-poupanca">
+      <span class="icon">🎯</span><span>Poupança</span>
+    </button>
+    <button onclick="navegarPara('holerite')" id="nav-holerite">
+      <span class="icon">📄</span><span>Holerite</span>
     </button>
   </nav>
 
@@ -513,9 +532,16 @@
             <label>Nº de Parcelas</label>
             <input type="number" id="lanc-parcelas" placeholder="1" min="1" max="99" value="1" oninput="toggleParcelaFields()" />
           </div>
-          <div id="lanc-1a-parcela-group" class="hidden">
-            <label>1ª Parcela em</label>
-            <input type="month" id="lanc-1a-parcela" />
+          <div id="lanc-parcela-inicial-group" class="hidden">
+            <label>Começa na parcela</label>
+            <input type="number" id="lanc-parcela-inicial" min="1" max="99" value="1" oninput="onParcelaInicialChange()" />
+          </div>
+        </div>
+        <div id="lanc-1a-parcela-group" class="hidden" style="margin-top:10px;">
+          <label id="lanc-1a-parcela-label">1ª Parcela em</label>
+          <input type="month" id="lanc-1a-parcela" oninput="atualizarPreviewValorParcela()" />
+          <div id="lanc-parcela-inicial-dica" class="hidden" style="font-size:12px;color:#b45309;margin-top:4px;">
+            Compra em andamento: confira o mês da fatura em que esta parcela aparece. Prefira informar o <b>valor da parcela</b>.
           </div>
         </div>
         <!-- Toggle tipo de valor: aparece só quando parcelas > 1 -->
@@ -541,6 +567,17 @@
           <input type="checkbox" id="lanc-recorrente" onchange="toggleRecorrente()" style="width:18px;height:18px;accent-color:#4f46e5;cursor:pointer;" />
           Repete todo mês (cobrança fixa)
         </label>
+        <div id="lanc-rec-meses-group" class="hidden" style="margin-top:10px;background:#f8fafc;border-radius:10px;padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:12px;color:#475569;font-weight:600;">Em quais meses se repete?</span>
+            <span style="font-size:12px;">
+              <a href="#" onclick="event.preventDefault();marcarTodosChipsMeses('rec', true)" style="color:#4f46e5;">Todos</a> ·
+              <a href="#" onclick="event.preventDefault();marcarTodosChipsMeses('rec', false)" style="color:#4f46e5;">Nenhum</a>
+            </span>
+          </div>
+          <div id="chips-meses-rec"></div>
+          <div id="rec-meses-resumo" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+        </div>
       </div>
 
       <!-- Nota: recolhida por padrão -->
@@ -550,33 +587,11 @@
       </div>
 
     </div>
-    <div id="lanc-parcela-grupo-opcao" class="hidden" style="margin-top:14px;background:#fef9c3;border-radius:8px;padding:12px;">
-      <div style="font-size:13px;font-weight:600;color:#92400e;margin-bottom:8px;">Compra parcelada em <span id="lanc-parcela-count"></span>x — aplicar em:</div>
-      <div style="display:grid;gap:6px;">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:0;cursor:pointer;">
-          <input type="radio" name="lanc-escopo" value="esta" checked onchange="atualizarEscopoParcela()" style="width:auto;" />
-          <span>Só esta parcela</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:0;cursor:pointer;">
-          <input type="radio" name="lanc-escopo" value="proximas" onchange="atualizarEscopoParcela()" style="width:auto;" />
-          <span>Esta e as <b>próximas</b> parcelas</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:0;cursor:pointer;">
-          <input type="radio" name="lanc-escopo" value="todas" onchange="atualizarEscopoParcela()" style="width:auto;" />
-          <span>Todas as parcelas</span>
-        </label>
-      </div>
-      <div id="lanc-escopo-campos" class="hidden" style="margin-top:10px;border-top:1px solid #fde68a;padding-top:10px;">
-        <div style="font-size:12px;color:#92400e;margin-bottom:6px;">O que copiar para as outras parcelas?</div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px 14px;">
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin:0;cursor:pointer;"><input type="checkbox" id="esc-campo-valor" checked style="width:auto;" /> Valor</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin:0;cursor:pointer;"><input type="checkbox" id="esc-campo-categoria" style="width:auto;" /> Categoria</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin:0;cursor:pointer;"><input type="checkbox" id="esc-campo-favorecido" style="width:auto;" /> Favorecido</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin:0;cursor:pointer;"><input type="checkbox" id="esc-campo-grupo" style="width:auto;" /> Grupo</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;margin:0;cursor:pointer;"><input type="checkbox" id="esc-campo-obs" style="width:auto;" /> Nota</label>
-        </div>
-        <div id="lanc-escopo-aviso" style="font-size:11px;color:#92400e;margin-top:8px;"></div>
-      </div>
+    <div id="lanc-parcela-grupo-opcao" class="hidden" style="margin-top:14px;background:#fef9c3;border-radius:8px;padding:10px 12px;">
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;margin:0;cursor:pointer;">
+        <input type="checkbox" id="lanc-aplicar-todas" style="width:auto;margin-top:2px;" />
+        <span>Aplicar em <b>todas as <span id="lanc-parcela-count"></span> parcelas</b> desta compra (ao salvar ou excluir). Desmarcado = só esta parcela.</span>
+      </label>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;" id="lanc-btns">
       <button class="btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
@@ -592,7 +607,8 @@
       <button class="btn-danger" style="width:100%;background:#fef2f2;" onclick="abrirExcluirParcelasDaqui()">🗑 Excluir esta e as próximas parcelas</button>
     </div>
     <div style="margin-top:8px;" id="lanc-btn-adiar-parcelas" class="hidden">
-      <button style="width:100%;background:#fef3c7;color:#92400e;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;" onclick="abrirAdiarParcelas()">⏭ Adiar esta e as próximas parcelas (1 mês)</button>
+      <button style="width:100%;background:#fef3c7;color:#92400e;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;" onclick="abrirAdiarParcelas(1)">⏭ Adiar esta e as próximas parcelas (1 mês)</button>
+      <button style="width:100%;margin-top:8px;background:#e0f2fe;color:#075985;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;" onclick="abrirAdiarParcelas(-1)">⏮ Antecipar esta e as próximas parcelas (1 mês)</button>
     </div>
 
     <!-- Importar Extrato -->
@@ -983,10 +999,10 @@
 <div id="modal-adiar-parcelas" class="modal-overlay hidden" style="z-index:61;">
   <div class="modal-box">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h3 style="margin:0;font-size:18px;font-weight:700;">Adiar parcelas</h3>
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="adiar-titulo">Adiar parcelas</h3>
       <button onclick="fecharModal('modal-adiar-parcelas')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
-    <p style="font-size:14px;color:#64748b;margin:0 0 12px;">A fatura não veio neste mês? Esta parcela e todas as seguintes serão empurradas <b>um mês para frente</b>. A numeração (ex: 2/6) e os valores não mudam.</p>
+    <p style="font-size:14px;color:#64748b;margin:0 0 12px;" id="adiar-texto">A fatura não veio neste mês? Esta parcela e todas as seguintes serão empurradas <b>um mês para frente</b>. A numeração (ex: 2/6) e os valores não mudam.</p>
     <div id="adiar-preview" style="margin-bottom:14px;"><div class="spinner" style="margin:16px auto;"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <button class="btn-secondary" onclick="fecharModal('modal-adiar-parcelas')">Voltar</button>
@@ -1097,13 +1113,52 @@
       <!-- campo holerite_tipo removido — holerite usa campos fixos automáticos -->
       <input type="hidden" id="cat-holerite-tipo" value="" />
 
+      <div id="cat-fora-group" style="margin-top:14px;background:#f0f9ff;border-radius:10px;padding:10px 12px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;color:#0c4a6e;font-weight:600;margin:0;">
+          <input type="checkbox" id="cat-fora-controle" style="width:18px;height:18px;accent-color:#0369a1;" />
+          🤝 Fora do controle mensal
+        </label>
+        <div style="font-size:12px;color:#0369a1;margin-top:4px;" id="cat-fora-ajuda">Dinheiro de terceiros que passa pela sua conta: não entra em receitas, despesas, orçamento nem relatório, mas continua no saldo da conta.</div>
+        <div id="cat-fundo-group" class="hidden" style="margin-top:10px;">
+          <label style="font-size:12px;color:#0c4a6e;font-weight:600;">Fundo (para o dashboard de terceiros)</label>
+          <input type="text" id="cat-fundo" list="cat-fundo-lista" placeholder="Ex.: Andrea — Pessoal" style="margin-top:4px;" />
+          <datalist id="cat-fundo-lista"></datalist>
+          <div style="font-size:11px;color:#0369a1;margin-top:3px;" id="cat-fundo-ajuda">Categorias com o mesmo fundo são somadas juntas: entradas, saídas e saldo.</div>
+        </div>
+      </div>
+
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;">
       <button class="btn-secondary" onclick="fecharModal('modal-categoria')">Cancelar</button>
       <button class="btn-primary" onclick="salvarCategoria()">Salvar</button>
     </div>
     <div style="margin-top:12px;" id="cat-btn-excluir" class="hidden">
-      <button class="btn-danger" style="width:100%;" onclick="excluirCategoria()">🗑 Excluir</button>
+      <div style="display:flex;gap:10px;">
+        <button id="cat-btn-mover" class="btn-secondary" style="flex:1;" onclick="abrirMoverSubcategoria()">↔ Mover</button>
+        <button class="btn-danger" style="flex:1;" onclick="abrirExcluirCategoria()">🗑 Excluir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Mover / Excluir com realocação -->
+<div id="modal-realocar" class="modal-overlay hidden" style="z-index:70;">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:18px;font-weight:700;" id="realoc-titulo">Mover</h3>
+      <button onclick="fecharModal('modal-realocar')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div id="realoc-impacto" style="font-size:13px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 12px;margin-bottom:14px;"></div>
+    <label style="font-size:13px;font-weight:600;color:#475569;" id="realoc-cat-label">Categoria de destino</label>
+    <select id="realoc-cat" style="margin-top:4px;margin-bottom:12px;" onchange="atualizarRealocSub()"></select>
+    <div id="realoc-sub-group" class="hidden">
+      <label style="font-size:13px;font-weight:600;color:#475569;">Subcategoria de destino</label>
+      <select id="realoc-sub" style="margin-top:4px;margin-bottom:12px;"></select>
+    </div>
+    <div id="realoc-aviso" style="font-size:12px;color:#b45309;margin-bottom:8px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+      <button class="btn-secondary" onclick="fecharModal('modal-realocar')">Cancelar</button>
+      <button class="btn-primary" id="realoc-btn" onclick="confirmarRealocacao()">Confirmar</button>
     </div>
   </div>
 </div>
@@ -1256,6 +1311,8 @@ let contas = [];
 let favorecidos = [];
 let grupos = [];
 let recorrencias = [];
+let regras = [];
+let recorrenciaIdEditando = null;   // recorrência do lançamento em edição (se houver)
 
 let lancamentoEditandoId = null;
 let parcelaGrupoEditando = null; // parcela_grupo_id do lançamento em edição (se for parcelado)
@@ -1377,6 +1434,7 @@ async function inicializar(user) {
     await comTimeout(carregarFavorecidos(), 30000);
     await comTimeout(carregarGrupos(), 30000);
     await comTimeout(carregarRecorrencias(), 30000);
+    await comTimeout(carregarRegras(), 30000);
     await processarRecorrencias();
   } catch(e) {
     appInicializado = false; // Permite tentar novamente
@@ -1733,8 +1791,117 @@ async function carregarRecorrencias() {
   recorrencias = data || [];
 }
 
+// ============================================================
+// REGRAS DE CATEGORIZAÇÃO AUTOMÁTICA
+// ============================================================
+async function carregarRegras() {
+  // Se a tabela ainda não existir, o app segue funcionando sem regras
+  const { data } = await sb.from('regras_categorizacao')
+    .select('*, categorias(nome,icone,parent_id), favorecidos(nome)')
+    .eq('ativa', true)
+    .order('prioridade');
+  regras = data || [];
+}
+
+// Retorna a regra que melhor casa com a descrição, ou null
+function regraPara(descricao) {
+  const d = (descricao || '').toLowerCase();
+  if (!d) return null;
+  const candidatas = regras.filter(r => r.padrao && d.includes(String(r.padrao).toLowerCase()));
+  if (!candidatas.length) return null;
+  // Menor prioridade vence; em caso de empate, o padrão mais específico (mais longo)
+  candidatas.sort((a, b) => (a.prioridade - b.prioridade) || (String(b.padrao).length - String(a.padrao).length));
+  return candidatas[0];
+}
+
+// Sugere um padrão enxuto a partir da descrição bruta do extrato
+function sugerirPadrao(desc) {
+  const ignorar = ['pag','pagto','pagamento','compra','debito','débito','credito','crédito','cartao','cartão','pix','transf','transferencia','transferência','conta','ltda','me','eireli'];
+  const limpo = (desc || '').toLowerCase()
+    .replace(/\d{2}\/\d{2}(\/\d{2,4})?/g, ' ')
+    .replace(/\d+/g, ' ')
+    .replace(/[^a-zà-ú\s]/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
+  const palavras = limpo.split(' ').filter(p => p.length > 3 && !ignorar.includes(p));
+  return palavras.slice(0, 2).join(' ') || limpo.slice(0, 20);
+}
+
+async function registrarUsoRegra(id, usosAtuais) {
+  try { await sb.from('regras_categorizacao').update({ usos: (usosAtuais || 0) + 1 }).eq('id', id); } catch (e) {}
+}
+
+// Pré-preenche uma linha da importação com a regra que casar
+function aplicarRegraNaLinha(i, descricao) {
+  const badge = document.getElementById(`tr-regra-${i}`);
+  const r = regraPara(descricao);
+  if (!r) {
+    if (badge) badge.innerHTML = `<button type="button" onclick="criarRegraDoImport(${i})" style="background:none;border:none;color:#6d28d9;font-size:11px;cursor:pointer;padding:0;">⚡ Criar regra</button>`;
+    return;
+  }
+  const cat = categorias.find(c => c.id === r.categoria_id);
+  if (cat) {
+    const paiId = cat.parent_id || cat.id;
+    const selCat = document.getElementById(`tr-cat-${i}`);
+    if (selCat && Array.from(selCat.options).some(o => o.value === paiId)) {
+      selCat.value = paiId;
+      atualizarSubcatImport(i);
+      if (cat.parent_id) {
+        const selSub = document.getElementById(`tr-subcat-${i}`);
+        if (selSub) selSub.value = cat.id;
+      }
+    }
+  }
+  if (r.favorecido_id) setFavCombo(`tr-fav-${i}`, r.favorecido_id);
+  if (r.forma_pagamento) {
+    const f = document.getElementById(`tr-forma-${i}`);
+    if (f) f.value = r.forma_pagamento;
+  }
+  if (badge) badge.innerHTML = `<span style="background:#ede9fe;color:#6d28d9;border-radius:999px;padding:1px 8px;font-size:11px;">⚡ ${r.padrao}</span>`;
+  registrarUsoRegra(r.id, r.usos);
+}
+
+// Cria uma regra a partir do que está selecionado na linha da importação
+async function criarRegraDoImport(i) {
+  const descEl = document.getElementById(`tr-${i}`)?.closest('.card')?.querySelector('[data-desc]');
+  const desc = descEl?.dataset.desc || '';
+  const catId = document.getElementById(`tr-subcat-${i}`)?.value || document.getElementById(`tr-cat-${i}`)?.value || null;
+  if (!catId) { toast('Escolha a categoria antes de criar a regra', 'erro'); return; }
+  const padrao = (prompt('Aplicar esta categoria quando a descrição contiver:', sugerirPadrao(desc)) || '').trim().toLowerCase();
+  if (!padrao) return;
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { error } = await sb.from('regras_categorizacao').insert({
+    user_id: uid,
+    padrao,
+    categoria_id: catId,
+    favorecido_id: document.getElementById(`tr-fav-${i}`)?.value || null,
+    forma_pagamento: document.getElementById(`tr-forma-${i}`)?.value || null,
+    prioridade: 100
+  });
+  if (error) { toast('Erro ao criar regra', 'erro'); return; }
+  await carregarRegras();
+  toast('Regra criada!', 'ok');
+  const badge = document.getElementById(`tr-regra-${i}`);
+  if (badge) badge.innerHTML = `<span style="background:#ede9fe;color:#6d28d9;border-radius:999px;padding:1px 8px;font-size:11px;">⚡ ${padrao}</span>`;
+}
+
+async function excluirRegra(id) {
+  if (!confirm('Excluir esta regra?')) return;
+  const { error } = await sb.from('regras_categorizacao').delete().eq('id', id);
+  if (error) { toast('Erro ao excluir regra', 'erro'); return; }
+  await carregarRegras();
+  toast('Regra excluída', 'ok');
+  renderizarConfig();
+}
+
 async function processarRecorrencias() {
   if (recorrencias.length === 0) return;
+
+  // Não gera lançamentos retroativos: meses anteriores ao corrente são somente leitura.
+  // Sem essa trava, navegar para trás recria recorrências em meses já encerrados.
+  const _ag = new Date();
+  const mesRefAtual = _ag.getFullYear() * 100 + (_ag.getMonth() + 1);
+  if (anoAtual * 100 + mesAtual < mesRefAtual) return;
+
   const uid = (await sb.auth.getUser()).data.user.id;
   const mesStr = String(mesAtual).padStart(2, '0');
   const inicioMes = `${anoAtual}-${mesStr}-01`;
@@ -1753,6 +1920,7 @@ async function processarRecorrencias() {
   const inserts = [];
   for (const rec of recorrencias) {
     if (idsJaCriados.has(rec.id)) continue; // já foi criado esse mês
+    if (Array.isArray(rec.meses) && rec.meses.length && !rec.meses.includes(mesAtual)) continue; // não se repete neste mês
     const dia = Math.min(rec.dia_do_mes, 28);
     const data = `${anoAtual}-${mesStr}-${String(dia).padStart(2, '0')}`;
     const favNome = rec.favorecidos?.nome || rec.categorias?.nome || (rec.tipo === 'receita' ? 'Receita' : 'Despesa');
@@ -1765,6 +1933,7 @@ async function processarRecorrencias() {
       categoria_id: rec.categoria_id,
       favorecido_id: rec.favorecido_id,
       cartao_id: rec.cartao_id,
+      conta_id: rec.conta_id || null,
       forma_pagamento: rec.forma_pagamento,
       recorrencia_id: rec.id
     });
@@ -1774,8 +1943,104 @@ async function processarRecorrencias() {
   }
 }
 
+// ============================================================
+// MESES DA RECORRÊNCIA (null = todos os meses)
+// ============================================================
+const _MESES_CURTOS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+// Texto curto: "todos os meses", "Jan–Mar", "Fev–Nov" ou "Jan, Abr, Jul"
+function resumoMeses(lista) {
+  if (!lista || lista.length === 0 || lista.length === 12) return lista && lista.length === 0 ? 'nenhum mês' : 'todos os meses';
+  const ord = [...new Set(lista)].sort((a, b) => a - b);
+  const faixas = [];
+  let ini = ord[0], ant = ord[0];
+  for (const m of ord.slice(1).concat([null])) {
+    if (m === ant + 1) { ant = m; continue; }
+    faixas.push(ini === ant ? _MESES_CURTOS[ini - 1] : (ant - ini === 1 ? _MESES_CURTOS[ini - 1] + ', ' + _MESES_CURTOS[ant - 1] : _MESES_CURTOS[ini - 1] + '–' + _MESES_CURTOS[ant - 1]));
+    ini = ant = m;
+  }
+  return faixas.join(', ');
+}
+
+function htmlChipsMeses(prefixo, selecionados) {
+  const sel = new Set(selecionados && selecionados.length ? selecionados : [1,2,3,4,5,6,7,8,9,10,11,12]);
+  return `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;">` +
+    _MESES_CURTOS.map((n, i) => {
+      const m = i + 1, on = sel.has(m);
+      return `<button type="button" data-chip-mes="${prefixo}" data-mes="${m}" data-on="${on ? 1 : 0}" onclick="alternarChipMes(this)"
+        style="padding:6px 0;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid ${on ? '#4f46e5' : '#e2e8f0'};background:${on ? '#4f46e5' : 'white'};color:${on ? 'white' : '#64748b'};">${n}</button>`;
+    }).join('') + `</div>`;
+}
+
+function _pintarChip(b) {
+  const on = b.dataset.on === '1';
+  b.style.background = on ? '#4f46e5' : 'white';
+  b.style.color = on ? 'white' : '#64748b';
+  b.style.borderColor = on ? '#4f46e5' : '#e2e8f0';
+}
+function alternarChipMes(b) {
+  b.dataset.on = b.dataset.on === '1' ? '0' : '1';
+  _pintarChip(b);
+  _atualizarResumoChips(b.dataset.chipMes);
+}
+function marcarTodosChipsMeses(prefixo, ligar) {
+  document.querySelectorAll(`[data-chip-mes="${prefixo}"]`).forEach(b => { b.dataset.on = ligar ? '1' : '0'; _pintarChip(b); });
+  _atualizarResumoChips(prefixo);
+}
+function lerChipsMeses(prefixo) {
+  return Array.from(document.querySelectorAll(`[data-chip-mes="${prefixo}"]`)).filter(b => b.dataset.on === '1').map(b => Number(b.dataset.mes));
+}
+function _atualizarResumoChips(prefixo) {
+  const el = document.getElementById(prefixo === 'rec' ? 'rec-meses-resumo' : `rec-meses-resumo-${prefixo}`);
+  if (el) { const l = lerChipsMeses(prefixo); el.textContent = 'Repete em: ' + resumoMeses(l); }
+}
+
+// Valor a gravar: null quando todos os meses estão marcados
+function mesesParaGravar(lista) {
+  // Lista vazia (seletor não exibido) ou completa = todos os meses
+  return (!lista || lista.length === 0 || lista.length === 12) ? null : [...lista].sort((a, b) => a - b);
+}
+
 function toggleRecorrente() {
-  // Sem efeito visual extra — o checkbox faz tudo
+  const chk = document.getElementById('lanc-recorrente');
+  const grupo = document.getElementById('lanc-rec-meses-group');
+  if (!grupo) return;
+  // Meses só podem ser escolhidos ao criar a recorrência; depois, em Configurações
+  const mostrar = chk.checked && !chk.disabled;
+  grupo.classList.toggle('hidden', !mostrar);
+  if (mostrar && !document.querySelector('[data-chip-mes="rec"]')) {
+    document.getElementById('chips-meses-rec').innerHTML = htmlChipsMeses('rec', null);
+    _atualizarResumoChips('rec');
+  }
+}
+
+// Recorrências em Configurações: editar meses
+function abrirEdicaoMesesRec(id) {
+  const box = document.getElementById(`rec-meses-edit-${id}`);
+  if (!box) return;
+  if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+  const rec = recorrencias.find(r => r.id === id);
+  box.innerHTML = `
+    <div style="margin-top:8px;background:#f8fafc;border-radius:10px;padding:10px;">
+      ${htmlChipsMeses(id, rec?.meses)}
+      <div id="rec-meses-resumo-${id}" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" class="btn-secondary btn-sm" onclick="marcarTodosChipsMeses('${id}', true)">Todos</button>
+        <button type="button" class="btn-primary" style="width:auto;padding:6px 14px;font-size:13px;margin-left:auto;" onclick="salvarMesesRec('${id}')">Salvar</button>
+      </div>
+    </div>`;
+  box.classList.remove('hidden');
+  _atualizarResumoChips(id);
+}
+
+async function salvarMesesRec(id) {
+  const lista = lerChipsMeses(id);
+  if (!lista.length) { toast('Marque pelo menos um mês (ou use Cancelar para encerrar a recorrência)', 'erro'); return; }
+  const { error } = await sb.from('recorrencias').update({ meses: mesesParaGravar(lista) }).eq('id', id);
+  if (error) { toast('Erro ao salvar os meses: ' + error.message, 'erro'); return; }
+  await carregarRecorrencias();
+  toast('Meses da recorrência atualizados', 'ok');
+  renderizarConfig();
 }
 
 // Abre o modal de cancelamento e pré-seleciona o mês/ano atuais como ponto de corte
@@ -1923,11 +2188,10 @@ function atualizarSubcategorias() {
     return;
   }
   const subs = categorias.filter(c => c.parent_id === catId);
-  if (subs.length === 0) {
-    subGroup.classList.add('hidden');
-    return;
-  }
-  subSel.innerHTML = '<option value="">Nenhuma (usar só a categoria)</option>';
+  // Mesmo sem subcategorias o campo aparece, para permitir criar a primeira pelo "+"
+  subSel.innerHTML = subs.length
+    ? '<option value="">Nenhuma (usar só a categoria)</option>'
+    : '<option value="">Nenhuma cadastrada — toque em + para criar</option>';
   subs.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.id;
@@ -1940,6 +2204,11 @@ function atualizarSubcategorias() {
 // ============================================================
 // DASHBOARD
 // ============================================================
+// Expande/recolhe a lista de uma pendência no dashboard
+function togglePendencia(id) {
+  document.getElementById(id)?.classList.toggle('hidden');
+}
+
 async function renderizarDashboard() {
   const el = document.getElementById('dashboard-content');
   el.innerHTML = '<div class="spinner"></div>';
@@ -1957,7 +2226,7 @@ async function renderizarDashboard() {
 
   // Detalhamento do holerite (__hol__) é só referência: não conta como receita/despesa.
   // O salário líquido é lançado manualmente como uma receita normal.
-  const lancReais = (lancDados || []).filter(l => l.observacao !== '__hol__');
+  const lancReais = (lancDados || []).filter(l => !foraDoMes(l));
   const receitas = lancReais.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
   const despesas = lancReais.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
   const saldo = receitas - despesas;
@@ -2036,7 +2305,108 @@ async function renderizarDashboard() {
       <text x="130" y="${BAR_H + 30}" text-anchor="middle" font-size="12" fill="${corSaldo}" font-weight="700">Saldo: ${R$(saldo)}</text>
     </svg>`;
 
-  el.innerHTML = `
+  // ============================================================
+  // PAINEL DE PENDÊNCIAS — o que exige ação sua neste mês
+  // ============================================================
+  const _hoje = new Date();
+  const _hojeStr = `${_hoje.getFullYear()}-${String(_hoje.getMonth()+1).padStart(2,'0')}-${String(_hoje.getDate()).padStart(2,'0')}`;
+  const ehMesCorrente = (mesAtual === _hoje.getMonth() + 1 && anoAtual === _hoje.getFullYear());
+
+  // 1) Lançamentos sem categoria
+  const pendSemCat = lancReais.filter(l => !l.categoria_id && l.tipo !== 'transferencia');
+
+  // 2) Lançamentos de conta (não cartão) já vencidos e ainda não conciliados
+  const pendNaoConc = lancReais.filter(l =>
+    !l.conciliado && !l.cartao_id && l.tipo !== 'transferencia' && l.data <= _hojeStr
+  );
+
+  // 3) Cartões fechando nos próximos 5 dias (só faz sentido no mês corrente)
+  const pendFechando = !ehMesCorrente ? [] : (cartoes || [])
+    .filter(c => c.ativo !== false && c.dia_fechamento)
+    .map(c => {
+      let dias = c.dia_fechamento - _hoje.getDate();
+      if (dias < 0) dias += ultimoDiaDoMes(anoAtual, mesAtual);
+      const total = (faturas || []).filter(f => f.cartao_id === c.id).reduce((s, f) => s + Number(f.valor), 0);
+      return { nome: c.nome, dias, total };
+    })
+    .filter(c => c.dias <= 5)
+    .sort((a, b) => a.dias - b.dias);
+
+  // 4) Categorias que ultrapassaram o orçamento
+  const pendEstouro = categoriasAlerta.filter(a => a.pct > 100).sort((a, b) => b.pct - a.pct);
+
+  const totalPend = pendSemCat.length + pendNaoConc.length + pendFechando.length + pendEstouro.length;
+
+  const _itensPend = (lista, cor) => {
+    const MAX = 8;
+    let h = lista.slice(0, MAX).map(l => `
+      <div onclick="event.stopPropagation();editarLancamento('${l.id}')" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-left:28px;margin-bottom:4px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:13px;cursor:pointer;">
+        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.descricao}</span>
+        <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${l.data.slice(8,10)}/${l.data.slice(5,7)}</span>
+        <span style="font-weight:600;white-space:nowrap;color:${cor};">${R$(l.valor)}</span>
+      </div>`).join('');
+    if (lista.length > MAX) {
+      h += `<div style="margin-left:28px;font-size:12px;color:#94a3b8;padding:4px 10px;">+ ${lista.length - MAX} outros — veja em Lançamentos</div>`;
+    }
+    return h;
+  };
+
+  const _linhaPend = (id, icone, rotulo, qtd, cor, conteudo) => `
+    <div onclick="togglePendencia('${id}')" style="display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid #f1f5f9;cursor:pointer;">
+      <span style="font-size:17px;">${icone}</span>
+      <span style="flex:1;font-size:14px;">${rotulo}</span>
+      <span style="font-weight:700;font-size:14px;color:${cor};">${qtd}</span>
+      <span style="color:#cbd5e1;font-size:12px;">▾</span>
+    </div>
+    <div id="${id}" class="hidden" style="padding-bottom:6px;">${conteudo}</div>`;
+
+  let htmlPend = '';
+  if (totalPend === 0) {
+    htmlPend = `
+      <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">✅</span>
+        <div>
+          <div style="font-weight:700;font-size:14px;color:#059669;">Tudo em dia</div>
+          <div style="font-size:12px;color:#94a3b8;">Nenhuma pendência neste mês.</div>
+        </div>
+      </div>`;
+  } else {
+    let linhas = '';
+    if (pendSemCat.length)   linhas += _linhaPend('pend-semcat',  '🏷️', 'Sem categoria',        pendSemCat.length,   '#d97706', _itensPend(pendSemCat, '#dc2626'));
+    if (pendNaoConc.length)  linhas += _linhaPend('pend-naoconc', '🔎', 'A conciliar',          pendNaoConc.length,  '#2563eb', _itensPend(pendNaoConc, '#dc2626'));
+    if (pendFechando.length) linhas += _linhaPend('pend-fatura',  '💳', 'Faturas fechando',     pendFechando.length, '#7c3aed',
+      pendFechando.map(c => `
+        <div style="display:flex;justify-content:space-between;margin-left:28px;margin-bottom:4px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:13px;">
+          <span>${c.nome} — ${c.dias === 0 ? 'fecha hoje' : 'em ' + c.dias + (c.dias === 1 ? ' dia' : ' dias')}</span>
+          <span style="font-weight:600;">${R$(c.total)}</span>
+        </div>`).join(''));
+    if (pendEstouro.length)  linhas += _linhaPend('pend-orcamento', '🚨', 'Orçamento estourado', pendEstouro.length, '#dc2626',
+      pendEstouro.map(a => `
+        <div style="display:flex;justify-content:space-between;margin-left:28px;margin-bottom:4px;padding:7px 10px;background:#f8fafc;border-radius:8px;font-size:13px;">
+          <span>${a.nome || 'Sem nome'}</span>
+          <span style="font-weight:600;color:#dc2626;">${Math.round(a.pct)}%</span>
+        </div>`).join(''));
+
+    htmlPend = `
+      <div class="card" style="padding:14px 16px;margin-bottom:14px;border-left:4px solid #f59e0b;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">🔔</span>
+          <span style="font-weight:700;font-size:15px;">Pendências</span>
+          <span style="margin-left:auto;background:#fef3c7;color:#b45309;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;">${totalPend}</span>
+        </div>
+        ${linhas}
+      </div>`;
+  }
+
+  // Situação do mês (conta principal), mesmo cálculo do Extrato
+  let htmlSituacao = '';
+  try {
+    if (!contas.length) await carregarContas();
+    const principal = contas.find(c => c.id === idContaPrincipal());
+    if (principal) htmlSituacao = htmlCardSituacao(await calcularFluxoMes(principal));
+  } catch (e) { console.error('Situação:', e); }
+
+  el.innerHTML = htmlPend + htmlSituacao + `
     <!-- 1. Orçamento — primeiro card -->
     <div class="card" style="padding:16px;margin-bottom:14px;cursor:pointer;" onclick="navegarPara('orcamento')">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
@@ -2171,7 +2541,44 @@ function htmlGrupoRateioLista(membros) {
   return h;
 }
 
-async function renderizarLancamentos() {
+// Re-renderiza a lista sem perder a posição de rolagem.
+// O spinner encolhia a página e o navegador voltava ao topo; travar a altura evita isso.
+async function renderizarLancamentos(opts = {}) {
+  ajustarTopoFixo();
+  const el = document.getElementById('lancamentos-content');
+  if (el) el.style.minHeight = el.offsetHeight + 'px';
+  try {
+    await _renderizarLancamentosBase();
+  } finally {
+    if (el) el.style.minHeight = '';
+  }
+  if (opts.destacarId) destacarLancamento(opts.destacarId);
+}
+
+// A barra de Lançamentos gruda logo abaixo do cabeçalho roxo (que também é fixo)
+function ajustarTopoFixo() {
+  const h = document.getElementById('cabecalho-app')?.offsetHeight || 0;
+  document.documentElement.style.setProperty('--topo-app', h + 'px');
+}
+window.addEventListener('resize', ajustarTopoFixo);
+window.addEventListener('scroll', () => {
+  ajustarTopoFixo();
+  const topo = document.getElementById('lanc-topo');
+  if (topo) topo.classList.toggle('rolado', window.scrollY > 8);
+}, { passive: true });
+
+// Rola até o lançamento e pisca em amarelo por ~2s
+function destacarLancamento(id) {
+  const alvo = document.querySelector(`#lancamentos-content [onclick*="${id}"]`);
+  if (!alvo) return;   // salvo em outro mês ou fora do filtro: mantém a posição atual
+  alvo.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const bgOriginal = alvo.style.backgroundColor;
+  alvo.style.transition = 'background-color 0.5s';
+  alvo.style.backgroundColor = '#fef08a';
+  setTimeout(() => { alvo.style.backgroundColor = bgOriginal; }, 2000);
+}
+
+async function _renderizarLancamentosBase() {
   const el = document.getElementById('lancamentos-content');
   el.innerHTML = '<div class="spinner"></div>';
 
@@ -2198,6 +2605,10 @@ async function renderizarLancamentos() {
   } else if (periodo === 'ano') {
     dataInicio = `${anoAtual}-01-01`;
     dataFim = `${anoAtual}-12-31`;
+  } else if (periodo === 'dia') {
+    const dia = document.getElementById('filtro-dia')?.value || diaPadraoFiltro();
+    dataInicio = dia;
+    dataFim = dia;
   } else if (periodo === 'custom') {
     dataInicio = document.getElementById('filtro-data-de')?.value || `${anoAtual}-01-01`;
     dataFim = document.getElementById('filtro-data-ate')?.value || `${anoAtual}-12-31`;
@@ -2246,8 +2657,11 @@ async function renderizarLancamentos() {
   const resumoEl = document.getElementById('lancamentos-resumo');
   if (resumoEl) {
     if (lancamentos.length > 0) {
-      const totalDespesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
-      const totalReceitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+      const doMes = lancamentos.filter(l => !categoriaForaDoControle(l.categoria_id));
+      const totalDespesas = doMes.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0);
+      const totalReceitas = doMes.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
+      const terceiros = lancamentos.filter(l => categoriaForaDoControle(l.categoria_id));
+      const liqTerceiros = terceiros.reduce((s, l) => s + (l.tipo === 'receita' ? 1 : -1) * Number(l.valor), 0);
       const totalTransf = lancamentos.filter(l => l.tipo === 'transferencia').reduce((s, l) => s + Number(l.valor), 0);
       resumoEl.style.display = 'block';
       resumoEl.innerHTML = `<div class="card" style="padding:12px 16px;display:flex;justify-content:space-between;font-size:13px;flex-wrap:wrap;gap:6px;">
@@ -2255,6 +2669,7 @@ async function renderizarLancamentos() {
         <span style="color:#64748b;">${lancamentos.length} lançamentos</span>
         <span style="color:#dc2626;font-weight:600;">↓ ${R$(totalDespesas)}</span>
         ${totalTransf > 0 ? `<span style="color:#7c3aed;font-weight:600;">🔄 ${R$(totalTransf)}</span>` : ''}
+        ${terceiros.length ? `<span style="color:#0369a1;font-weight:600;width:100%;font-size:12px;">🤝 Terceiros (fora do controle): ${liqTerceiros >= 0 ? '+' : '−'} ${R$(Math.abs(liqTerceiros))}</span>` : ''}
       </div>`;
     } else {
       resumoEl.style.display = 'none';
@@ -2330,8 +2745,31 @@ function toggleFiltros() {
   }
 }
 
+// Dia sugerido ao escolher "Um dia": hoje, se estiver no mês exibido; senão, o dia 1
+function diaPadraoFiltro() {
+  const h = new Date();
+  const hojeStr = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+  const mesStr = `${anoAtual}-${String(mesAtual).padStart(2,'0')}`;
+  return hojeStr.startsWith(mesStr) ? hojeStr : `${mesStr}-01`;
+}
+
+// Avança ou volta um dia no filtro
+function passoFiltroDia(n) {
+  const inp = document.getElementById('filtro-dia');
+  const d = new Date((inp.value || diaPadraoFiltro()) + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  inp.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  renderizarLancamentos();
+}
+
 function togglePeriodoCustom() {
   const periodo = document.getElementById('filtro-periodo')?.value;
+  const diaWrap = document.getElementById('filtro-dia-wrap');
+  if (diaWrap) {
+    diaWrap.classList.toggle('hidden', periodo !== 'dia');
+    const inpDia = document.getElementById('filtro-dia');
+    if (periodo === 'dia' && inpDia && !inpDia.value) inpDia.value = diaPadraoFiltro();
+  }
   const customDates = document.getElementById('filtro-datas-custom');
   if (!customDates) return;
   if (periodo === 'custom') {
@@ -2359,7 +2797,7 @@ function atualizarFiltroSubcategoria() {
 }
 
 function limparFiltros() {
-  const ids = ['filtro-periodo','filtro-tipo','filtro-forma','filtro-cartao','filtro-categoria','filtro-subcategoria','filtro-favorecido','filtro-busca','filtro-data-de','filtro-data-ate'];
+  const ids = ['filtro-periodo','filtro-tipo','filtro-forma','filtro-cartao','filtro-categoria','filtro-subcategoria','filtro-favorecido','filtro-busca','filtro-data-de','filtro-data-ate','filtro-dia'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = id === 'filtro-periodo' ? 'mes' : '';
@@ -2367,16 +2805,22 @@ function limparFiltros() {
   setFavCombo('filtro-favorecido', '');
   const customDates = document.getElementById('filtro-datas-custom');
   if (customDates) { customDates.classList.add('hidden'); customDates.style.display = 'none'; }
+  document.getElementById('filtro-dia-wrap')?.classList.add('hidden');
   renderizarLancamentos();
 }
 
 function abrirModalLancamento() {
   lancamentoEditandoId = null;
   parcelaGrupoEditando = null;
+  recorrenciaIdEditando = null;
+  const _chkRec = document.getElementById('lanc-recorrente');
+  if (_chkRec) _chkRec.disabled = false;
+  document.getElementById('lanc-rec-meses-group')?.classList.add('hidden');
+  const _chipsRec = document.getElementById('chips-meses-rec');
+  if (_chipsRec) _chipsRec.innerHTML = '';
+  document.getElementById('lanc-recorrente-group')?.classList.remove('hidden');
   document.getElementById('lanc-parcela-grupo-opcao').classList.add('hidden');
-  const _rEsta = document.querySelector('input[name="lanc-escopo"][value="esta"]');
-  if (_rEsta) _rEsta.checked = true;
-  atualizarEscopoParcela();
+  document.getElementById('lanc-aplicar-todas').checked = false;
   document.getElementById('lanc-id').value = '';
   document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento';
   document.getElementById('lanc-valor').value = '';
@@ -2388,6 +2832,11 @@ function abrirModalLancamento() {
   document.getElementById('lanc-recorrente').checked = false;
   document.getElementById('lanc-rateio').checked = false;
   document.getElementById('lanc-parcelas').value = 1;
+  document.getElementById('lanc-parcela-inicial').value = 1;
+  document.getElementById('lanc-parcela-inicial-group').classList.add('hidden');
+  document.getElementById('lanc-parcela-inicial-dica').classList.add('hidden');
+  document.getElementById('lanc-1a-parcela-label').textContent = '1ª Parcela em';
+  document.getElementById('lanc-1a-parcela').dataset.base = '';
   document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
   document.getElementById('lanc-tipo-valor-group').classList.add('hidden');
   document.getElementById('lanc-valor-preview').style.display = 'none';
@@ -2427,9 +2876,7 @@ async function editarLancamento(id) {
   // Opção de parcelado: aplicar em todas as parcelas
   parcelaGrupoEditando = l.parcela_grupo_id || null;
   const opcParc = document.getElementById('lanc-parcela-grupo-opcao');
-  const _rEsta = document.querySelector('input[name="lanc-escopo"][value="esta"]');
-  if (_rEsta) _rEsta.checked = true;
-  atualizarEscopoParcela();
+  document.getElementById('lanc-aplicar-todas').checked = false;
   parcelaDataEditando = l.data || null;
   if (parcelaGrupoEditando) {
     document.getElementById('lanc-parcela-count').textContent = l.total_parcelas || '';
@@ -2441,6 +2888,14 @@ async function editarLancamento(id) {
     document.getElementById('lanc-btn-excluir-daqui').classList.add('hidden');
     document.getElementById('lanc-btn-adiar-parcelas').classList.add('hidden');
   }
+  // Recorrência: já recorrente → marcada e travada; parcela → não se aplica; avulso → pode virar recorrente
+  recorrenciaIdEditando = l.recorrencia_id || null;
+  const chkRec = document.getElementById('lanc-recorrente');
+  chkRec.checked = !!l.recorrencia_id;
+  chkRec.disabled = !!l.recorrencia_id;
+  document.getElementById('lanc-rec-meses-group')?.classList.add('hidden');
+  document.getElementById('chips-meses-rec').innerHTML = '';
+  document.getElementById('lanc-recorrente-group').classList.toggle('hidden', !!parcelaGrupoEditando);
   // Rateio não se aplica na edição de um item já existente
   document.getElementById('lanc-rateio').checked = false;
   document.getElementById('lanc-rateio-toggle-group').classList.add('hidden');
@@ -2488,9 +2943,7 @@ function duplicarLancamento() {
   lancamentoEditandoId = null;
   parcelaGrupoEditando = null;
   document.getElementById('lanc-parcela-grupo-opcao').classList.add('hidden');
-  const _rEsta = document.querySelector('input[name="lanc-escopo"][value="esta"]');
-  if (_rEsta) _rEsta.checked = true;
-  atualizarEscopoParcela();
+  document.getElementById('lanc-aplicar-todas').checked = false;
   document.getElementById('lanc-id').value = '';
   document.getElementById('modal-lancamento-titulo').textContent = 'Novo Lançamento (cópia)';
   document.getElementById('lanc-btn-excluir').classList.add('hidden');
@@ -2551,6 +3004,8 @@ function setFormaPgto(forma) {
   if (!isCartao) {
     document.getElementById('lanc-cartao').value = '';
     document.getElementById('lanc-parcelas').value = '1';
+    document.getElementById('lanc-parcela-inicial').value = 1;
+    document.getElementById('lanc-parcela-inicial-group').classList.add('hidden');
     document.getElementById('lanc-1a-parcela-group').classList.add('hidden');
     document.getElementById('lanc-fatura-aviso').style.display = 'none';
   }
@@ -2577,7 +3032,8 @@ function calcularFatura() {
   // Sempre atualiza o campo 1ª parcela ao recalcular a fatura
   const campo1aParcela = document.getElementById('lanc-1a-parcela');
   if (campo1aParcela) {
-    campo1aParcela.value = `${anoFatura}-${String(mesFatura).padStart(2,'0')}`;
+    campo1aParcela.dataset.base = `${anoFatura}-${String(mesFatura).padStart(2,'0')}`;
+    campo1aParcela.value = _somarMesesAnoMes(campo1aParcela.dataset.base, getParcelaInicial() - 1);
   }
 }
 
@@ -2593,7 +3049,31 @@ function toggleParcelaFields() {
   const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
   const mostrar = n > 1;
   document.getElementById('lanc-1a-parcela-group').classList.toggle('hidden', !mostrar);
+  document.getElementById('lanc-parcela-inicial-group').classList.toggle('hidden', !mostrar);
   document.getElementById('lanc-tipo-valor-group').classList.toggle('hidden', !mostrar);
+  onParcelaInicialChange(false);
+}
+
+// Parcela inicial: limita entre 1 e o total, ajusta rótulo, dica e o mês sugerido
+function getParcelaInicial() {
+  const n = parseInt(document.getElementById('lanc-parcelas').value) || 1;
+  const ini = parseInt(document.getElementById('lanc-parcela-inicial').value) || 1;
+  return Math.min(Math.max(ini, 1), Math.max(n, 1));
+}
+function _somarMesesAnoMes(anoMes, k) {
+  const [a, m] = anoMes.split('-').map(Number);
+  const t = a * 12 + (m - 1) + k;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+function onParcelaInicialChange(reposicionarMes = true) {
+  const ini = getParcelaInicial();
+  const campoIni = document.getElementById('lanc-parcela-inicial');
+  if (campoIni && campoIni.value !== '' && Number(campoIni.value) !== ini) campoIni.value = ini;
+  document.getElementById('lanc-1a-parcela-label').textContent = ini > 1 ? `Parcela ${ini} em` : '1ª Parcela em';
+  document.getElementById('lanc-parcela-inicial-dica').classList.toggle('hidden', ini <= 1);
+  // Desloca o mês sugerido pela data da compra para o mês da parcela inicial
+  const campoMes = document.getElementById('lanc-1a-parcela');
+  if (reposicionarMes && campoMes?.dataset.base) campoMes.value = _somarMesesAnoMes(campoMes.dataset.base, ini - 1);
   atualizarPreviewValorParcela();
 }
 
@@ -2637,11 +3117,16 @@ function atualizarPreviewValorParcela() {
   const valor = parseFloat(document.getElementById('lanc-valor').value) || 0;
   if (n <= 1 || valor <= 0) { preview.style.display = 'none'; return; }
   const tipo = getTipoValorParcela();
-  if (tipo === 'total') {
-    const vParc = Math.round(valor / n * 100) / 100;
+  const ini = getParcelaInicial();
+  const vParc = tipo === 'total' ? Math.round(valor / n * 100) / 100 : Math.round(valor * 100) / 100;
+  const vTotal = tipo === 'total' ? Math.round(valor * 100) / 100 : Math.round(valor * n * 100) / 100;
+  if (ini > 1) {
+    const qtd = n - ini + 1;
+    const restante = Math.round((vTotal - vParc * (ini - 1)) * 100) / 100;
+    preview.textContent = `→ cria as parcelas ${ini} a ${n}: ${qtd}× de ${R$(vParc)} · restante ${R$(restante)} de ${R$(vTotal)}`;
+  } else if (tipo === 'total') {
     preview.textContent = `→ ${n}× de ${R$(vParc)}`;
   } else {
-    const vTotal = Math.round(valor * n * 100) / 100;
     preview.textContent = `→ Total: ${R$(vTotal)}`;
   }
   preview.style.display = 'block';
@@ -2694,6 +3179,7 @@ function toggleRateio() {
     document.getElementById('lanc-recorrente').checked = false;
     document.getElementById('lanc-parcelas-group').classList.add('hidden');
     document.getElementById('lanc-parcelas').value = 1;
+    document.getElementById('lanc-parcela-inicial').value = 1;
     document.getElementById('rateio-rows').innerHTML = '';
     rateioSeq = 0;
     adicionarLinhaRateio();
@@ -2828,37 +3314,6 @@ async function salvarLancamentoRateio() {
   if (paginaAtual === 'relatorio') renderizarRelatorio();
 }
 
-// Escopo escolhido para uma compra parcelada: 'esta' | 'proximas' | 'todas'
-function getEscopoParcela() {
-  const el = document.querySelector('input[name="lanc-escopo"]:checked');
-  return el ? el.value : 'esta';
-}
-
-// Mostra/esconde os checkboxes de campos conforme o escopo
-function atualizarEscopoParcela() {
-  const escopo = getEscopoParcela();
-  const campos = document.getElementById('lanc-escopo-campos');
-  const aviso = document.getElementById('lanc-escopo-aviso');
-  if (escopo === 'esta') { campos.classList.add('hidden'); return; }
-  campos.classList.remove('hidden');
-  if (aviso) {
-    aviso.textContent = escopo === 'proximas'
-      ? 'As parcelas anteriores e as já conferidas não são alteradas.'
-      : 'Todas as parcelas da compra serão alteradas (exceto as já conferidas).';
-  }
-}
-
-// Monta o objeto de update só com os campos marcados
-function _camposEscopo(dados) {
-  const patch = {};
-  if (document.getElementById('esc-campo-valor').checked) patch.valor = dados.valor;
-  if (document.getElementById('esc-campo-categoria').checked) patch.categoria_id = dados.catId;
-  if (document.getElementById('esc-campo-favorecido').checked) patch.favorecido_id = dados.favId;
-  if (document.getElementById('esc-campo-grupo').checked) patch.grupo_id = dados.grupoId;
-  if (document.getElementById('esc-campo-obs').checked) patch.observacao = dados.obs;
-  return patch;
-}
-
 async function salvarLancamento() {
   if (rateioAtivo()) { return salvarLancamentoRateio(); }
   const valor = parseFloat(document.getElementById('lanc-valor').value);
@@ -2882,7 +3337,10 @@ async function salvarLancamento() {
 
   // Validação de campos obrigatórios
   const catIdPrincipal = document.getElementById('lanc-categoria').value || null;
-  const subGroupVisivel = !document.getElementById('lanc-subcategoria-group').classList.contains('hidden');
+  // Subcategoria é obrigatória só quando a categoria escolhida tem subcategorias
+  const catEscolhida = document.getElementById('lanc-categoria')?.value;
+  const subGroupVisivel = !document.getElementById('lanc-subcategoria-group').classList.contains('hidden')
+    && categorias.some(c => c.parent_id === catEscolhida);
   if (!favId) { toast('Selecione o favorecido', 'erro'); return; }
   if (forma !== 'cartao' && !contaId) { toast('Selecione a conta', 'erro'); return; }
   if (!valor) { toast('Informe o valor', 'erro'); return; }
@@ -2894,48 +3352,53 @@ async function salvarLancamento() {
 
   const id = document.getElementById('lanc-id').value;
   const ehRecorrente = document.getElementById('lanc-recorrente').checked;
+  let idDestaque = id || null;   // lançamento a destacar na lista após salvar
+  // Recorrência com meses escolhidos: exige pelo menos um mês marcado
+  if (ehRecorrente && document.querySelector('[data-chip-mes="rec"]') && lerChipsMeses('rec').length === 0) {
+    toast('Marque pelo menos um mês em que a recorrência se repete', 'erro'); return;
+  }
 
   if (id) {
-    const escopo = parcelaGrupoEditando ? getEscopoParcela() : 'esta';
-    if (escopo !== 'esta') {
-      // Primeiro salva a parcela aberta por completo
-      const { error: errEsta } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('id', id);
-      if (errEsta) { toast('Erro ao salvar', 'erro'); return; }
-
-      // Depois propaga só os campos marcados para as demais
-      const patch = _camposEscopo({ valor, catId, favId, grupoId, obs });
-      if (Object.keys(patch).length === 0) {
-        toast('Parcela atualizada (nenhum campo marcado para copiar)', 'ok');
-      } else {
-        let q = sb.from('lancamentos').update(patch)
-          .eq('parcela_grupo_id', parcelaGrupoEditando)
-          .neq('id', id)                      // a aberta já foi salva acima
-          .or('conciliado.is.null,conciliado.eq.false');  // nunca mexe nas já conferidas
-        if (escopo === 'proximas') q = q.gt('data', data);  // só as posteriores
-        const { error } = await q;
-        if (error) { toast('Erro ao aplicar nas outras parcelas: ' + error.message, 'erro'); return; }
-        toast(escopo === 'proximas' ? 'Esta e as próximas parcelas atualizadas!' : 'Todas as parcelas atualizadas!', 'ok');
-      }
+    const aplicarTodas = parcelaGrupoEditando && document.getElementById('lanc-aplicar-todas').checked;
+    if (aplicarTodas) {
+      // Atualiza todas as parcelas do grupo — mantém a data e o "(x/y)" de cada uma
+      const { error } = await sb.from('lancamentos').update({ valor, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('parcela_grupo_id', parcelaGrupoEditando);
+      if (error) { toast('Erro ao salvar', 'erro'); return; }
+      toast('Todas as parcelas foram atualizadas!', 'ok');
     } else {
       const { error } = await sb.from('lancamentos').update({ descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).eq('id', id);
       if (error) { toast('Erro ao salvar', 'erro'); return; }
       toast('Lançamento atualizado!', 'ok');
     }
+  }
+  // Edição: marcar "Repete todo mês" num lançamento já existente cria a recorrência e vincula este lançamento
+  if (id && ehRecorrente && !recorrenciaIdEditando && !parcelaGrupoEditando) {
+    // Cria a recorrência a partir do lançamento e vincula os dois numa transação única
+    const mesesRec = mesesParaGravar(lerChipsMeses('rec'));
+    const { data: recId, error: errRec } = await sb.rpc('criar_recorrencia_de_lancamento', { p_lanc: id });
+    if (!errRec && mesesRec) await sb.from('recorrencias').update({ meses: mesesRec }).eq('id', recId);
+    if (errRec) { toast('Lançamento salvo, mas houve erro ao criar a recorrência: ' + errRec.message, 'erro'); }
+    else {
+      await carregarRecorrencias();
+      toast('Agora este lançamento se repete todo mês 🔁', 'ok');
+    }
+  }
+  if (id) {
+    // (edição concluída acima)
   } else if (ehRecorrente) {
-    // Cria a recorrência e já lança o mês atual
+    // Grava o lançamento do mês e o converte em recorrência no banco.
+    // Se a conversão falhar, o lançamento continua salvo como avulso (nada se perde).
     const uid = (await sb.auth.getUser()).data.user.id;
-    const diaDaData = parseInt(data.split('-')[2]);
-    const { data: rec, error: errRec } = await sb.from('recorrencias').insert({
-      user_id: uid, favorecido_id: favId, categoria_id: catId, valor, tipo,
-      cartao_id: cartaoId, forma_pagamento: forma, dia_do_mes: diaDaData, ativa: true
-    }).select().single();
-    if (errRec) { toast('Erro ao criar recorrência', 'erro'); return; }
-    // Lançamento do mês atual vinculado
-    await sb.from('lancamentos').insert({
+    const { data: novo, error: errLanc } = await sb.from('lancamentos').insert({
       user_id: uid, descricao: desc, valor, data, tipo,
       categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId,
-      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra, recorrencia_id: rec.id
-    });
+      conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra
+    }).select('id').single();
+    if (errLanc) { toast('Erro ao salvar o lançamento', 'erro'); return; }
+    const mesesRec = mesesParaGravar(lerChipsMeses('rec'));
+    const { data: recId, error: errRec } = await sb.rpc('criar_recorrencia_de_lancamento', { p_lanc: novo.id });
+    if (!errRec && mesesRec) await sb.from('recorrencias').update({ meses: mesesRec }).eq('id', recId);
+    if (errRec) { toast('Lançamento salvo, mas a recorrência não foi criada: ' + errRec.message, 'erro'); }
     await carregarRecorrencias();
     fecharModal('modal-lancamento');
     navegarPara('lancamentos');
@@ -2945,7 +3408,8 @@ async function salvarLancamento() {
   } else if (parcelas > 1 && tipo === 'despesa') {
     // Parcelado
     const mesInicio = document.getElementById('lanc-1a-parcela').value;
-    if (!mesInicio) { toast('Informe o mês da 1ª parcela', 'erro'); return; }
+    const parcIni = getParcelaInicial();   // 1 = compra nova; >1 = compra em andamento
+    if (!mesInicio) { toast(parcIni > 1 ? `Informe o mês da parcela ${parcIni}` : 'Informe o mês da 1ª parcela', 'erro'); return; }
     const [anoP, mesP] = mesInicio.split('-').map(Number);
     const parcelaGrupoId = crypto.randomUUID();
     // Arredonda cada parcela para 2 casas decimais; a última absorve o centavo restante
@@ -2959,8 +3423,9 @@ async function salvarLancamento() {
     const valorUltimaParcela = Math.round((valorTotal - valorParcelaBase * (parcelas - 1)) * 100) / 100;
     const inserts = [];
     const uid = (await sb.auth.getUser()).data.user.id;
-    for (let i = 0; i < parcelas; i++) {
-      const totalMes = (mesP - 1) + i;
+    // O mês informado é o da parcela inicial; parcelas anteriores não são criadas
+    for (let i = parcIni - 1; i < parcelas; i++) {
+      const totalMes = (mesP - 1) + (i - (parcIni - 1));
       const anoParc = anoP + Math.floor(totalMes / 12);
       const mesParc = (totalMes % 12) + 1;
       const dataParc = `${anoParc}-${String(mesParc).padStart(2,'0')}-15`;
@@ -2974,19 +3439,22 @@ async function salvarLancamento() {
         parcela_atual: i+1, total_parcelas: parcelas, parcela_grupo_id: parcelaGrupoId
       });
     }
-    const { error } = await sb.from('lancamentos').insert(inserts);
+    const { data: insParc, error } = await sb.from('lancamentos').insert(inserts).select('id, data');
     if (error) { toast('Erro ao salvar parcelas', 'erro'); return; }
-    toast(`${parcelas} parcelas criadas!`, 'ok');
+    const mesVis = `${anoAtual}-${String(mesAtual).padStart(2,'0')}`;
+    idDestaque = (insParc || []).find(p => String(p.data).slice(0,7) === mesVis)?.id || insParc?.[0]?.id || null;
+    toast(parcIni > 1 ? `Parcelas ${parcIni} a ${parcelas} criadas!` : `${parcelas} parcelas criadas!`, 'ok');
   } else {
     // Simples
     const uid = (await sb.auth.getUser()).data.user.id;
-    const { error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra });
+    const { data: insSimples, error } = await sb.from('lancamentos').insert({ user_id: uid, descricao: desc, valor, data, tipo, categoria_id: catId, favorecido_id: favId, cartao_id: cartaoId, conta_id: contaId, grupo_id: grupoId, forma_pagamento: forma, observacao: obs, data_compra: dataCompra }).select('id').single();
     if (error) { toast('Erro ao salvar', 'erro'); return; }
+    idDestaque = insSimples?.id || null;
     toast('Lançamento salvo!', 'ok');
   }
 
   fecharModal('modal-lancamento');
-  if (paginaAtual === 'lancamentos') renderizarLancamentos();
+  if (paginaAtual === 'lancamentos') await renderizarLancamentos({ destacarId: idDestaque });
   if (paginaAtual === 'dashboard') renderizarDashboard();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
@@ -3004,10 +3472,25 @@ function _somarUmMes(dataStr) {
   return `${na}-${String(nm).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
 }
 
-// Abre o modal mostrando o antes→depois do adiamento
-async function abrirAdiarParcelas() {
+// Desloca uma data em n meses, ajustando o dia ao último dia do mês quando preciso
+function _deslocarMes(dataStr, n) {
+  const [a, m, d] = dataStr.split('-').map(Number);
+  const total = a * 12 + (m - 1) + n;
+  const na = Math.floor(total / 12), nm = (total % 12) + 1;
+  const dia = Math.min(d, ultimoDiaDoMes(na, nm));
+  return `${na}-${String(nm).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+}
+
+// Abre o modal mostrando o antes→depois. direcao = 1 adia, -1 antecipa
+async function abrirAdiarParcelas(direcao = 1) {
   if (!parcelaGrupoEditando || !parcelaDataEditando) { toast('Este lançamento não é parcelado', 'erro'); return; }
   window._adiarDados = null;
+  const adiar = direcao > 0;
+  document.getElementById('adiar-titulo').textContent = adiar ? 'Adiar parcelas' : 'Antecipar parcelas';
+  document.getElementById('adiar-texto').innerHTML = adiar
+    ? 'A fatura não veio neste mês? Esta parcela e todas as seguintes serão empurradas <b>um mês para frente</b>. A numeração (ex: 2/6) e os valores não mudam.'
+    : 'Lançou no mês errado? Esta parcela e todas as seguintes serão trazidas <b>um mês para trás</b>. A numeração (ex: 2/6) e os valores não mudam.';
+  document.getElementById('adiar-confirmar').textContent = adiar ? 'Adiar parcelas' : 'Antecipar parcelas';
   const prev = document.getElementById('adiar-preview');
   prev.innerHTML = '<div class="spinner" style="margin:16px auto;"></div>';
   const btn = document.getElementById('adiar-confirmar');
@@ -3027,22 +3510,22 @@ async function abrirAdiarParcelas() {
   const mover = todos.filter(l => !l.conciliado);
   const protegidas = todos.filter(l => l.conciliado);
 
-  window._adiarDados = { itens: mover.map(l => ({ id: l.id, novaData: _somarUmMes(l.data) })) };
+  window._adiarDados = { direcao, itens: mover.map(l => ({ id: l.id, novaData: _deslocarMes(l.data, direcao) })) };
 
   if (mover.length === 0) {
-    prev.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:#166534;">Nenhuma parcela a adiar a partir desta data.</div>`;
+    prev.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:#166534;">Nenhuma parcela a ${adiar ? 'adiar' : 'antecipar'} a partir desta data.</div>`;
     return;
   }
 
   const fmt = d => d.split('-').reverse().join('/');
   let html = `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;">
-    <div style="font-weight:700;font-size:14px;color:#92400e;margin-bottom:8px;">${mover.length} parcela(s) serão adiadas:</div>
+    <div style="font-weight:700;font-size:14px;color:#92400e;margin-bottom:8px;">${mover.length} parcela(s) serão ${adiar ? 'adiadas' : 'antecipadas'}:</div>
     <div style="max-height:170px;overflow-y:auto;">`;
   mover.forEach(l => {
     const parc = l.total_parcelas > 1 ? `${l.parcela_atual}/${l.total_parcelas}` : '';
     html += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px solid #fef3c7;">
       <span style="color:#64748b;">${parc}</span>
-      <span style="color:#374151;">${fmt(l.data)} <span style="color:#92400e;font-weight:700;">→</span> <b>${fmt(_somarUmMes(l.data))}</b></span>
+      <span style="color:#374151;">${fmt(l.data)} <span style="color:#92400e;font-weight:700;">→</span> <b>${fmt(_deslocarMes(l.data, direcao))}</b></span>
     </div>`;
   });
   html += `</div>`;
@@ -3060,20 +3543,22 @@ async function abrirAdiarParcelas() {
 // Aplica o adiamento (uma atualização por parcela)
 async function confirmarAdiarParcelas() {
   const dados = window._adiarDados;
-  if (!dados || dados.itens.length === 0) { toast('Nada a adiar', 'erro'); return; }
-  if (!confirm(`Adiar ${dados.itens.length} parcela(s) em um mês?`)) return;
+  const adiar = (dados?.direcao ?? 1) > 0;
+  const verbo = adiar ? 'Adiar' : 'Antecipar';
+  if (!dados || dados.itens.length === 0) { toast('Nada a ' + verbo.toLowerCase(), 'erro'); return; }
+  if (!confirm(`${verbo} ${dados.itens.length} parcela(s) em um mês?`)) return;
 
-  // Atualiza da última para a primeira, evitando colisão de datas no caminho
-  const ordenados = [...dados.itens].sort((a, b) => a.novaData < b.novaData ? 1 : -1);
-  for (const it of ordenados) {
-    const { error } = await sb.from('lancamentos').update({ data: it.novaData }).eq('id', it.id);
-    if (error) { toast('Erro ao adiar: ' + error.message, 'erro'); return; }
-  }
+  // Move todas as parcelas numa única operação no banco (tudo ou nada; conciliadas ficam onde estão)
+  const { data: qtdMovidas, error } = await sb.rpc('deslocar_parcelas', {
+    p_ids: dados.itens.map(it => it.id), p_meses: adiar ? 1 : -1
+  });
+  if (error) { toast(`Erro ao ${verbo.toLowerCase()}: ` + error.message, 'erro'); return; }
+  const qtd = qtdMovidas ?? dados.itens.length;
 
   window._adiarDados = null;
   fecharModal('modal-adiar-parcelas');
   fecharModal('modal-lancamento');
-  toast(`${ordenados.length} parcela(s) adiada(s) em 1 mês`, 'ok');
+  toast(`${qtd} parcela(s) ${adiar ? 'adiada(s)' : 'antecipada(s)'} em 1 mês`, 'ok');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
@@ -3158,7 +3643,7 @@ async function confirmarExcluirParcelasDaqui() {
 
 async function excluirLancamento() {
   const id = document.getElementById('lanc-id').value;
-  const aplicarTodas = parcelaGrupoEditando && getEscopoParcela() === 'todas';
+  const aplicarTodas = parcelaGrupoEditando && document.getElementById('lanc-aplicar-todas').checked;
   if (aplicarTodas) {
     if (!confirm('Excluir TODAS as parcelas desta compra?')) return;
     await sb.from('lancamentos').delete().eq('parcela_grupo_id', parcelaGrupoEditando);
@@ -3374,7 +3859,8 @@ function renderizarTransacoesImportadas(transacoes) {
         <div style="display:flex;align-items:start;gap:10px;">
           <input type="checkbox" id="tr-${i}" checked style="width:auto;margin-top:2px;" />
           <div style="flex:1;">
-            <div style="font-weight:600;font-size:13px;margin-bottom:6px;" data-desc="${t.descricao.replace(/"/g,'&quot;')}">${t.descricao}</div>
+            <div style="font-weight:600;font-size:13px;margin-bottom:4px;" data-desc="${t.descricao.replace(/"/g,'&quot;')}">${t.descricao}</div>
+            <div id="tr-regra-${i}" style="margin-bottom:6px;min-height:16px;"></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <input type="date" id="tr-data-${i}" value="${t.data}" style="font-size:12px;padding:4px 8px;" />
               <select id="tr-tipo-${i}" onchange="atualizarCatsPorTipo(${i})" style="font-size:12px;padding:4px 8px;">
@@ -3440,6 +3926,11 @@ function renderizarTransacoesImportadas(transacoes) {
 
   html += `<button class="btn-primary" style="margin-top:8px;" onclick="confirmarImportacao(${transacoes.length})">✅ Importar Selecionados</button>`;
   el.innerHTML = html;
+
+  // Pré-categoriza cada linha com as regras cadastradas
+  transacoes.forEach((t, i) => aplicarRegraNaLinha(i, t.descricao));
+  const casadas = transacoes.filter(t => regraPara(t.descricao)).length;
+  if (casadas > 0) toast(`${casadas} de ${transacoes.length} categorizadas por regra`, 'ok');
 }
 
 async function confirmarImportacao(total) {
@@ -3495,7 +3986,7 @@ function popularSelectCategoriasOrcamento() {
   sel.innerHTML = '<option value="">Selecione...</option>';
   const holIds = idsCategoriasHolerite();
   ['despesa', 'receita'].forEach(tipo => {
-    const cats = categorias.filter(c => !c.parent_id && c.tipo === tipo && !holIds.has(c.id));
+    const cats = categorias.filter(c => !c.parent_id && c.tipo === tipo && !holIds.has(c.id) && !categoriaForaDoControle(c.id));
     if (cats.length === 0) return;
     const grp = document.createElement('optgroup');
     grp.label = tipo === 'despesa' ? '📉 Despesas' : '📈 Receitas';
@@ -3555,9 +4046,46 @@ function montarGruposOrcamento(orcLista) {
 
 // IDs das categorias usadas pelo holerite (identificadas pelo nome em HOL_FIELDS).
 // Servem para nunca aparecerem no Orçamento — são apenas referência.
-function idsCategoriasHolerite() {
+// Categorias do holerite: nome de item do holerite E (na raiz ou dentro de uma categoria "... holerite").
+// Uma categoria pessoal com o mesmo nome (ex.: Seguro de vida em Despesas pessoais) não é afetada.
+function _ehCatHolerite(c) {
   const nomes = new Set(HOL_FIELDS.map(f => (f.catNome || '').toLowerCase().trim()));
-  return new Set((categorias || []).filter(c => nomes.has((c.nome || '').toLowerCase().trim())).map(c => c.id));
+  if (!nomes.has((c.nome || '').toLowerCase().trim())) return false;
+  if (!c.parent_id) return true;
+  const pai = (categorias || []).find(x => x.id === c.parent_id);
+  return /holerite/i.test(pai?.nome || '');
+}
+// Categoria marcada como "fora do controle mensal" (dinheiro de terceiros), própria ou herdada do pai
+function categoriaForaDoControle(catId) {
+  if (!catId) return false;
+  const c = (categorias || []).find(x => x.id === catId);
+  if (!c) return false;
+  if (c.fora_do_controle) return true;
+  const pai = c.parent_id ? categorias.find(x => x.id === c.parent_id) : null;
+  return !!pai?.fora_do_controle;
+}
+// Fundo de terceiros a que a categoria pertence (próprio ou herdado do pai)
+function fundoDaCategoria(catId) {
+  const c = (categorias || []).find(x => x.id === catId);
+  if (!c) return null;
+  if (c.fundo) return c.fundo;
+  const pai = c.parent_id ? categorias.find(x => x.id === c.parent_id) : null;
+  return pai?.fundo || null;
+}
+
+// Não entra nas contas do mês: detalhe de holerite ou dinheiro de terceiros
+function foraDoMes(l) { return l.observacao === '__hol__' || categoriaForaDoControle(l.categoria_id); }
+
+function idsCategoriasHolerite() {
+  return new Set((categorias || []).filter(_ehCatHolerite).map(c => c.id));
+}
+
+// Diferença entre planejado e gasto: "Disponível" (verde) ou "Excedeu" (vermelho)
+function _saldoOrcamento(planejado, gasto) {
+  const dif = Number(planejado) - Number(gasto);
+  return dif >= 0
+    ? { rotulo: 'Disponível', valor: dif, cor: '#059669' }
+    : { rotulo: 'Excedeu', valor: -dif, cor: '#dc2626' };
 }
 
 async function renderizarOrcamento() {
@@ -3589,9 +4117,9 @@ async function renderizarOrcamento() {
   }
 
   const gastosPorCat = {};
-  (lancDesp || []).forEach(l => { if (l.observacao === '__hol__') return; gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancDesp || []).forEach(l => { if (foraDoMes(l)) return; gastosPorCat[l.categoria_id] = (gastosPorCat[l.categoria_id] || 0) + Number(l.valor); });
   const receitasPorCat = {};
-  (lancRec || []).forEach(l => { if (l.observacao === '__hol__') return; receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancRec || []).forEach(l => { if (foraDoMes(l)) return; receitasPorCat[l.categoria_id] = (receitasPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
   const orcDespesa = orcVisivel.filter(o => o.categorias?.tipo === 'despesa');
   const orcReceita = orcVisivel.filter(o => o.categorias?.tipo === 'receita');
@@ -3755,10 +4283,12 @@ async function renderizarOrcamento() {
         <div class="progress-bar" style="margin-bottom:8px;">
           <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:${subsUnificadas.length > 0 ? '12px' : '0'};">
-          <span>Gasto: <strong style="color:${cor}">${R$(gastoTotal)}</strong></span>
-          <span>Planejado: <strong>${R$(planejadoTotal)}</strong></span>
-        </div>
+        ${(() => { const sd = _saldoOrcamento(planejadoTotal, gastoTotal); return `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;margin-bottom:${subsUnificadas.length > 0 ? '12px' : '0'};">
+          <div><div style="font-size:11px;color:#64748b;">Gasto</div><div style="font-weight:700;font-size:14px;color:${cor};">${R$(gastoTotal)}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">${planejadoTotal > 0 ? sd.rotulo : 'Disponível'}</div><div style="font-weight:700;font-size:14px;color:${planejadoTotal > 0 ? sd.cor : '#94a3b8'};">${planejadoTotal > 0 ? R$(sd.valor) : '—'}</div></div>
+          <div><div style="font-size:11px;color:#64748b;">Planejado</div><div style="font-weight:700;font-size:14px;">${R$(planejadoTotal)}</div></div>
+        </div>`; })()}
       </div>`;
 
       if (subsUnificadas.length > 0) {
@@ -3783,8 +4313,10 @@ async function renderizarOrcamento() {
               <div class="progress-bar" style="height:5px;margin-bottom:5px;">
                 <div class="progress-fill" style="width:${pctS}%;background:${corS};"></div>
               </div>` : ''}
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;color:#94a3b8;">
                 <span style="color:${gastoS > 0 ? corS : '#94a3b8'};font-weight:600;">${R$(gastoS)}</span>
+                ${s.valor_planejado > 0 ? (() => { const sd = _saldoOrcamento(s.valor_planejado, gastoS);
+                  return `<span style="color:${sd.cor};font-weight:600;">${sd.rotulo === 'Excedeu' ? 'excedeu' : 'resta'} ${R$(sd.valor)}</span>`; })() : ''}
                 <span>${s.valor_planejado > 0 ? R$(s.valor_planejado) : '+ definir orçamento'}</span>
               </div>
             </div>`;
@@ -3800,18 +4332,20 @@ async function renderizarOrcamento() {
       <div class="progress-bar" style="margin-bottom:8px;">
         <div class="progress-fill" style="width:${Math.min(pctTotal,100)}%;background:${progressCor(pctTotal)};"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;">
-        <span>Gasto: <strong style="color:${progressCor(pctTotal)}">${R$(totalGasto)}</strong></span>
-        <span>Planejado: <strong>${R$(totalPlanejado)}</strong></span>
-      </div>
+      ${(() => { const sd = _saldoOrcamento(totalPlanejado, totalGasto); return `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;font-size:13px;">
+        <div><div style="font-size:11px;color:#64748b;">Gasto</div><strong style="color:${progressCor(pctTotal)}">${R$(totalGasto)}</strong></div>
+        <div><div style="font-size:11px;color:#64748b;">${sd.rotulo}</div><strong style="color:${sd.cor}">${R$(sd.valor)}</strong></div>
+        <div><div style="font-size:11px;color:#64748b;">Planejado</div><strong>${R$(totalPlanejado)}</strong></div>
+      </div>`; })()}
     </div>` + htmlDesp;
   }
 
   // ── CARD RESUMO GERAL ─────────────────────────────────────
   const totalMetaRecGeral   = (orcReceita || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
   const totalPlanDespGeral  = (orcDespesa || []).reduce((s, o) => s + Number(o.valor_planejado), 0);
-  const totalRealRecGeral   = (lancRec  || []).reduce((s, l) => l.observacao === '__hol__' ? s : s + Number(l.valor), 0);
-  const totalRealDespGeral  = (lancDesp || []).reduce((s, l) => l.observacao === '__hol__' ? s : s + Number(l.valor), 0);
+  const totalRealRecGeral   = (lancRec  || []).reduce((s, l) => foraDoMes(l) ? s : s + Number(l.valor), 0);
+  const totalRealDespGeral  = (lancDesp || []).reduce((s, l) => foraDoMes(l) ? s : s + Number(l.valor), 0);
   const saldoOrcado   = totalMetaRecGeral  - totalPlanDespGeral;
   const saldoRealizado = totalRealRecGeral - totalRealDespGeral;
 
@@ -3856,7 +4390,7 @@ function atualizarSubcategoriasOrcamento() {
   const subSel = document.getElementById('orc-subcategoria');
   if (!catId) { subGroup.classList.add('hidden'); return; }
   const holIds = idsCategoriasHolerite();
-  const subs = categorias.filter(c => c.parent_id === catId && !holIds.has(c.id));
+  const subs = categorias.filter(c => c.parent_id === catId && !holIds.has(c.id) && !categoriaForaDoControle(c.id));
   if (subs.length === 0) { subGroup.classList.add('hidden'); return; }
   subSel.innerHTML = '<option value="">Nenhuma (orçar a categoria toda)</option>';
   subs.forEach(c => {
@@ -3942,14 +4476,12 @@ function relatorioTrocarAba(aba) {
   document.getElementById('rel-tab-despesas').classList.toggle('active', aba === 'despesa');
   document.getElementById('rel-tab-receitas').classList.toggle('active', aba === 'receita');
   document.getElementById('rel-tab-grupos')  .classList.toggle('active', aba === 'grupos');
-  const isResumo = aba === 'resumo';
-  const isGrupos = aba === 'grupos';
-  document.getElementById('rel-aba-resumo') .style.display = isResumo ? '' : 'none';
-  document.getElementById('rel-aba-detalhe').style.display = (isResumo || isGrupos) ? 'none' : '';
-  document.getElementById('rel-aba-grupos') .style.display = isGrupos ? '' : 'none';
-  if (isResumo)      _renderizarRelatorioResumo();
-  else if (isGrupos) _renderizarRelatorioGrupos();
-  else               _renderizarRelatorioConteudo();
+  document.getElementById('rel-tab-terceiros').classList.toggle('active', aba === 'terceiros');
+  _mostrarAbaRelatorio();
+  if (aba === 'resumo')         _renderizarRelatorioResumo();
+  else if (aba === 'grupos')    _renderizarRelatorioGrupos();
+  else if (aba === 'terceiros') _renderizarRelatorioTerceiros();
+  else                          _renderizarRelatorioConteudo();
 }
 
 async function renderizarRelatorio() {
@@ -3981,18 +4513,115 @@ async function renderizarRelatorio() {
 
   // Indexa realizado por categoria (ignora o detalhamento do holerite, que é só referência)
   const realPorCat = {};
-  (lancData || []).filter(l => l.observacao !== '__hol__').forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
+  (lancData || []).filter(l => !foraDoMes(l)).forEach(l => { realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor); });
 
   // Guarda no estado global para trocarAba usar sem re-fetch
   window._relOrcPorCat  = orcPorCat;
   window._relRealPorCat = realPorCat;
 
-  document.getElementById('rel-aba-resumo') .style.display = relAba === 'resumo' ? '' : 'none';
-  document.getElementById('rel-aba-detalhe').style.display = (relAba === 'despesa' || relAba === 'receita') ? '' : 'none';
-  document.getElementById('rel-aba-grupos') .style.display = relAba === 'grupos' ? '' : 'none';
-  if (relAba === 'resumo')      _renderizarRelatorioResumo();
-  else if (relAba === 'grupos') _renderizarRelatorioGrupos();
-  else                          _renderizarRelatorioConteudo();
+  _mostrarAbaRelatorio();
+  if (relAba === 'resumo')         _renderizarRelatorioResumo();
+  else if (relAba === 'grupos')    _renderizarRelatorioGrupos();
+  else if (relAba === 'terceiros') _renderizarRelatorioTerceiros();
+  else                             _renderizarRelatorioConteudo();
+}
+
+function _mostrarAbaRelatorio() {
+  document.getElementById('rel-aba-resumo')   .style.display = relAba === 'resumo' ? '' : 'none';
+  document.getElementById('rel-aba-detalhe')  .style.display = (relAba === 'despesa' || relAba === 'receita') ? '' : 'none';
+  document.getElementById('rel-aba-grupos')   .style.display = relAba === 'grupos' ? '' : 'none';
+  document.getElementById('rel-aba-terceiros').style.display = relAba === 'terceiros' ? '' : 'none';
+}
+
+// ============================================================
+// DASHBOARD DE TERCEIROS — um card por fundo
+// Saldo atual = tudo que já aconteceu (data até hoje).
+// Compromissos = lançamentos com data futura (parcelas, agendados).
+// ============================================================
+async function _renderizarRelatorioTerceiros() {
+  const el = document.getElementById('rel-terceiros-conteudo');
+  el.innerHTML = '<div class="spinner"></div>';
+
+  const catsFora = categorias.filter(c => categoriaForaDoControle(c.id));
+  if (!catsFora.length) {
+    el.innerHTML = `<div class="card" style="padding:16px;font-size:13px;color:#94a3b8;">Nenhuma categoria marcada como fora do controle mensal. Marque em Configurações → categoria → "Fora do controle mensal" e defina o fundo.</div>`;
+    return;
+  }
+  const { data, error } = await sb.from('lancamentos')
+    .select('data, descricao, valor, tipo, categoria_id')
+    .in('categoria_id', catsFora.map(c => c.id))
+    .order('data');
+  if (error) { el.innerHTML = `<div class="card" style="padding:16px;color:#dc2626;">Erro: ${error.message}</div>`; return; }
+
+  const h = new Date();
+  const hoje = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+  const mesSel = `${relAno}-${String(relMes).padStart(2,'0')}`;
+  const sinalV = l => (l.tipo === 'receita' ? 1 : -1) * Number(l.valor);
+  const soma = (arr, tipo) => arr.filter(l => l.tipo === tipo).reduce((t, l) => t + Number(l.valor), 0);
+  const nomeCat = id => { const c = categorias.find(x => x.id === id); if (!c) return '—'; const p = c.parent_id ? categorias.find(x => x.id === c.parent_id) : null; return (p ? p.nome + ' › ' : '') + c.nome; };
+
+  // Agrupa por fundo
+  const fundos = {};
+  for (const l of (data || [])) {
+    const f = fundoDaCategoria(l.categoria_id) || 'Sem fundo definido';
+    (fundos[f] = fundos[f] || []).push(l);
+  }
+  const nomes = Object.keys(fundos).sort((a, b) => (a === 'Sem fundo definido') - (b === 'Sem fundo definido') || a.localeCompare(b));
+
+  let html = `<p style="font-size:12px;color:#94a3b8;margin:0 0 12px;">Dinheiro de terceiros que passa pela sua conta, separado por fundo. Nada disto entra no seu controle mensal. O mês exibido segue o seletor acima.</p>`;
+
+  for (const f of nomes) {
+    const ls = fundos[f];
+    const passados = ls.filter(l => l.data <= hoje);
+    const futuros  = ls.filter(l => l.data > hoje);
+    const doMes    = ls.filter(l => l.data.slice(0, 7) === mesSel);
+    const saldoAtual = passados.reduce((t, l) => t + sinalV(l), 0);
+    const compromissos = futuros.reduce((t, l) => t + sinalV(l), 0);
+    const saldoProj = saldoAtual + compromissos;
+    const entMes = soma(doMes, 'receita'), saiMes = soma(doMes, 'despesa');
+
+    // Histórico: últimos 6 meses até o mês exibido, com saldo acumulado ao fim de cada um
+    const hist = [];
+    for (let k = 5; k >= 0; k--) {
+      const t = relAno * 12 + (relMes - 1) - k;
+      const am = `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+      const doAm = ls.filter(l => l.data.slice(0, 7) === am);
+      const acum = ls.filter(l => l.data.slice(0, 7) <= am).reduce((s2, l) => s2 + sinalV(l), 0);
+      if (doAm.length || hist.length) hist.push({ am, ent: soma(doAm, 'receita'), sai: soma(doAm, 'despesa'), acum });
+    }
+    const corSaldo = v => v >= 0 ? '#059669' : '#dc2626';
+    const linhasHist = hist.map(x => `
+      <tr><td style="padding:4px 0;color:#64748b;">${x.am.slice(5)}/${x.am.slice(2, 4)}</td>
+        <td style="text-align:right;color:#059669;">${R$(x.ent)}</td>
+        <td style="text-align:right;color:#dc2626;">${R$(x.sai)}</td>
+        <td style="text-align:right;font-weight:600;color:${corSaldo(x.acum)};">${R$(x.acum)}</td></tr>`).join('');
+    const listaMes = doMes.map(l => `
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid #f8fafc;">
+        <span style="color:#475569;">${l.data.slice(8)}/${l.data.slice(5, 7)} · ${l.descricao}<br><span style="color:#94a3b8;">${nomeCat(l.categoria_id)}</span></span>
+        <b style="white-space:nowrap;color:${l.tipo === 'receita' ? '#059669' : '#dc2626'};">${l.tipo === 'receita' ? '+' : '−'} ${R$(l.valor)}</b>
+      </div>`).join('');
+
+    html += `
+    <div class="card" style="padding:16px;margin-bottom:14px;border-left:4px solid #0369a1;">
+      <div style="font-weight:700;font-size:15px;color:#0c4a6e;margin-bottom:10px;">🤝 ${f}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:12px;">
+        <div><div style="font-size:11px;color:#64748b;">Saldo hoje</div><div style="font-size:16px;font-weight:700;color:${corSaldo(saldoAtual)};">${R$(saldoAtual)}</div></div>
+        <div><div style="font-size:11px;color:#64748b;">Compromissos</div><div style="font-size:14px;font-weight:700;color:${corSaldo(compromissos)};">${compromissos === 0 ? '—' : (compromissos > 0 ? '+ ' : '− ') + R$(Math.abs(compromissos))}</div></div>
+        <div><div style="font-size:11px;color:#64748b;">Saldo projetado</div><div style="font-size:14px;font-weight:700;color:${corSaldo(saldoProj)};">${R$(saldoProj)}</div></div>
+      </div>
+      <div style="background:#f8fafc;border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">${meses[relMes - 1]}/${relAno}</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:#059669;">↑ Entradas</span><b>${R$(entMes)}</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:#dc2626;">↓ Saídas</span><b>${R$(saiMes)}</b></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;border-top:1px solid #e2e8f0;margin-top:4px;padding-top:4px;"><span>Resultado do mês</span><b style="color:${corSaldo(entMes - saiMes)};">${R$(entMes - saiMes)}</b></div>
+      </div>
+      ${linhasHist ? `<table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:8px;">
+        <tr style="color:#94a3b8;font-size:11px;"><td>Mês</td><td style="text-align:right;">Entradas</td><td style="text-align:right;">Saídas</td><td style="text-align:right;">Saldo acum.</td></tr>${linhasHist}</table>` : ''}
+      ${listaMes ? `<details><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Lançamentos de ${meses[relMes - 1]} (${doMes.length})</summary>${listaMes}</details>` : `<div style="font-size:12px;color:#94a3b8;">Sem lançamentos em ${meses[relMes - 1]}.</div>`}
+      ${futuros.length ? `<div style="font-size:11px;color:#94a3b8;margin-top:8px;">Compromissos = ${futuros.length} lançamento(s) já agendado(s) com data futura, até ${futuros[futuros.length - 1].data.slice(8)}/${futuros[futuros.length - 1].data.slice(5, 7)}/${futuros[futuros.length - 1].data.slice(0, 4)}.</div>` : ''}
+    </div>`;
+  }
+  el.innerHTML = html;
 }
 
 function relatorioSelecionarMes(m) {
@@ -4113,6 +4742,127 @@ function toggleGrupoDetalhe(grupoId) {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
+// ============================================================
+// DESEMPENHO DO ORÇADO E REALIZADO SEM ORÇAMENTO
+// Unidade orçada = categoria (ou subcategoria) com valor planejado.
+// Orçamento numa categoria principal cobre as subcategorias dela sem orçamento próprio.
+// ============================================================
+function _analisarOrcado(orcPorCat, realPorCat, tipo) {
+  const holIds = idsCategoriasHolerite();
+  const cats = categorias.filter(c => c.tipo === tipo && !holIds.has(c.id) && !categoriaForaDoControle(c.id));
+  const temOrc = id => (orcPorCat[id] || 0) > 0;
+  const unidades = [], naoOrc = [];
+  for (const pai of cats.filter(c => !c.parent_id)) {
+    const subs = cats.filter(c => c.parent_id === pai.id);
+    const paiOrc = temOrc(pai.id);
+    if (paiOrc) {
+      const real = (realPorCat[pai.id] || 0) + subs.filter(sb_ => !temOrc(sb_.id)).reduce((t, sb_) => t + (realPorCat[sb_.id] || 0), 0);
+      unidades.push({ nome: `${pai.icone || '📁'} ${pai.nome}`, orc: orcPorCat[pai.id], real });
+    } else if ((realPorCat[pai.id] || 0) !== 0) {   // inclui estornos (valores negativos)
+      naoOrc.push({ nome: `${pai.icone || '📁'} ${pai.nome}`, real: realPorCat[pai.id] });
+    }
+    for (const sc of subs) {
+      const r = realPorCat[sc.id] || 0;
+      if (temOrc(sc.id)) unidades.push({ nome: `${pai.nome} › ${sc.nome}`, orc: orcPorCat[sc.id], real: r });
+      else if (!paiOrc && r !== 0) naoOrc.push({ nome: `${pai.nome} › ${sc.nome}`, real: r });
+    }
+  }
+  return { unidades, naoOrc };
+}
+
+function _renderizarDesempenhoOrcado(orcPorCat, realPorCat) {
+  const elD = document.getElementById('rel-resumo-desempenho');
+  const elN = document.getElementById('rel-resumo-naoorcado');
+  if (!elD || !elN) return;
+
+  const hoje = new Date();
+  const mesCorrente = relAno === hoje.getFullYear() && relMes === hoje.getMonth() + 1;
+  const desp = _analisarOrcado(orcPorCat, realPorCat, 'despesa');
+  const rec  = _analisarOrcado(orcPorCat, realPorCat, 'receita');
+
+  // ── Card 1: desempenho dos itens orçados ──
+  const faixa = u => { const p = u.orc > 0 ? (u.real / u.orc) * 100 : 0; return p > 100 ? 'acima' : p >= 90 ? 'dentro' : 'abaixo'; };
+  const grupos = { abaixo: [], dentro: [], acima: [] };
+  desp.unidades.forEach(u => grupos[faixa(u)].push(u));
+  const orcT = desp.unidades.reduce((t, u) => t + u.orc, 0);
+  const realT = desp.unidades.reduce((t, u) => t + u.real, 0);
+  const sobras = [...grupos.abaixo, ...grupos.dentro].reduce((t, u) => t + (u.orc - u.real), 0);
+  const excessos = grupos.acima.reduce((t, u) => t + (u.real - u.orc), 0);
+  const saldo = orcT - realT;
+
+  if (!desp.unidades.length) {
+    elD.innerHTML = `<div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:6px;">🎯 Desempenho do orçado</div>
+      <div style="font-size:13px;color:#94a3b8;">Nenhuma despesa orçada neste mês.</div>`;
+  } else {
+    let sel;
+    if (saldo >= 0 && excessos === 0) sel = { i: '🟢', t: 'Tudo dentro do orçado', c: '#047857', f: '#d1fae5',
+      m: `Nenhum item ultrapassou. Sobram ${R$(saldo)} no total.` };
+    else if (saldo >= 0) sel = { i: '🟡', t: 'Dentro no total', c: '#b45309', f: '#fef3c7',
+      m: `${grupos.acima.length} ${grupos.acima.length === 1 ? 'item ultrapassou' : 'itens ultrapassaram'} em ${R$(excessos)}, mas as sobras de ${R$(sobras)} compensam. Saldo: ${R$(saldo)}.` };
+    else sel = { i: '🔴', t: 'Acima do orçado', c: '#b91c1c', f: '#fee2e2',
+      m: `Os excessos de ${R$(excessos)} superam as sobras de ${R$(sobras)}. O orçado foi ultrapassado em ${R$(-saldo)}.` };
+
+    const chip = (rot, cor, fundo, lista, valor, sinal) => `
+      <div style="background:${fundo};border-radius:10px;padding:8px;text-align:center;">
+        <div style="font-size:11px;color:${cor};font-weight:700;">${rot}</div>
+        <div style="font-size:18px;font-weight:700;color:${cor};">${lista.length}</div>
+        <div style="font-size:11px;color:${cor};">${sinal}${R$(valor)}</div>
+      </div>`;
+    const somaSobra = l => l.reduce((t, u) => t + (u.orc - u.real), 0);
+    const linhaItem = u => {
+      const p = Math.round((u.real / u.orc) * 100);
+      const dif = u.orc - u.real;
+      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid #f8fafc;">
+        <span style="color:#475569;">${u.nome}</span>
+        <span style="white-space:nowrap;color:#64748b;">${R$(u.real)} / ${R$(u.orc)} · ${p}% · <b style="color:${dif >= 0 ? '#059669' : '#dc2626'};">${dif >= 0 ? 'sobra ' : 'excede '}${R$(Math.abs(dif))}</b></span>
+      </div>`;
+    };
+    const det = (titulo, lista) => lista.length ? `<div style="font-size:12px;font-weight:600;color:#374151;margin-top:8px;">${titulo}</div>` +
+      [...lista].sort((a, b) => (b.real / b.orc) - (a.real / a.orc)).map(linhaItem).join('') : '';
+
+    elD.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:700;color:#374151;">🎯 Desempenho do orçado — despesas</span>
+        <span style="background:${sel.f};color:${sel.c};border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap;">${sel.i} ${sel.t}</span>
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:12px;">${sel.m}${mesCorrente ? ' <i>Mês em andamento: "abaixo" pode ser só o que ainda não foi gasto.</i>' : ''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+        ${chip('Abaixo (&lt;90%)', '#047857', '#ecfdf5', grupos.abaixo, somaSobra(grupos.abaixo), 'sobra ')}
+        ${chip('Dentro (90–100%)', '#b45309', '#fffbeb', grupos.dentro, somaSobra(grupos.dentro), 'sobra ')}
+        ${chip('Ultrapassou', '#b91c1c', '#fef2f2', grupos.acima, excessos, 'excede ')}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Orçado nos itens</span><b style="color:#1e293b;">${R$(orcT)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Realizado nos itens orçados</span><b style="color:#1e293b;">${R$(realT)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;border-top:1px solid #f1f5f9;margin-top:6px;padding-top:6px;">
+        <span style="font-weight:700;">${saldo >= 0 ? 'Sobra no orçado' : 'Excesso no orçado'}</span>
+        <b style="color:${saldo >= 0 ? '#059669' : '#dc2626'};">${R$(Math.abs(saldo))}</b>
+      </div>
+      <details style="margin-top:8px;"><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Ver item a item</summary>
+        ${det('🔴 Ultrapassou', grupos.acima)}${det('🟡 Dentro', grupos.dentro)}${det('🟢 Abaixo', grupos.abaixo)}
+      </details>`;
+  }
+
+  // ── Card 2: realizado sem orçamento ──
+  const totNaoDesp = desp.naoOrc.reduce((t, x) => t + x.real, 0);
+  const totNaoRec  = rec.naoOrc.reduce((t, x) => t + x.real, 0);
+  const totDespGeral = realT + totNaoDesp;
+  const pctNao = totDespGeral > 0 ? Math.round((totNaoDesp / totDespGeral) * 100) : 0;
+  const listaNao = [...desp.naoOrc].sort((a, b) => b.real - a.real).map(x =>
+    `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid #f8fafc;">
+       <span style="color:#475569;">${x.nome}</span><b style="color:#374151;white-space:nowrap;">${R$(x.real)}</b></div>`).join('');
+
+  elN.innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;">📌 Realizado sem orçamento</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span style="font-size:13px;color:#64748b;">Despesas não orçadas</span>
+      <span style="font-size:17px;font-weight:700;color:${totNaoDesp > 0 ? '#dc2626' : '#059669'};">${R$(totNaoDesp)}</span>
+    </div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">${totNaoDesp > 0 ? `${pctNao}% de todas as despesas do mês (${R$(totDespGeral)})` : 'Todas as despesas do mês estavam orçadas.'}</div>
+    ${totNaoRec > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:8px;"><span>Receitas não orçadas</span><b style="color:#059669;">${R$(totNaoRec)}</b></div>` : ''}
+    ${listaNao ? `<details><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Ver por categoria (${desp.naoOrc.length})</summary>${listaNao}</details>` : ''}
+    ${totNaoDesp > 0 ? `<div style="font-size:12px;color:#64748b;margin-top:8px;">💡 Categorias que se repetem aqui todo mês são candidatas a ganhar orçamento próprio.</div>` : ''}`;
+}
+
 function _renderizarRelatorioResumo() {
   const orcPorCat  = window._relOrcPorCat  || {};
   const realPorCat = window._relRealPorCat || {};
@@ -4229,6 +4979,8 @@ function _renderizarRelatorioResumo() {
       <div style="font-size:11px;margin-top:3px;" class="${clsDesp}">${labelDesp}</div>
     </div>
   `;
+
+  _renderizarDesempenhoOrcado(orcPorCat, realPorCat);
 
   // --- Top categorias (todas as de despesa com orc ou realizado, ordenadas por % desc) ---
   const pais = categorias.filter(c => c.tipo === 'despesa' && !c.parent_id);
@@ -4615,6 +5367,13 @@ async function renderizarExtrato(opts = {}) {
   const pctConf = qtdTotal > 0 ? Math.round(qtdConf / qtdTotal * 100) : 0;
   const valorFaltante = lancamentos.filter(l => !l.conciliado).reduce((s, l) => s + Number(l.valor), 0);
 
+  // Fluxo do mês e previsão de saldo (mesmo cálculo usado na tela de Início)
+  let htmlPrevisao = '';
+  try {
+    const fluxo = await calcularFluxoMes(conta, { lancamentos, saldoAnteriorMes, inicioMes, fimMes });
+    htmlPrevisao = htmlCardFluxo(fluxo);
+  } catch (e) { console.error('Previsão:', e); htmlPrevisao = ''; }
+
   const grupos = {};
   lancamentos.forEach(l => {
     if (!grupos[l.data]) grupos[l.data] = [];
@@ -4623,6 +5382,24 @@ async function renderizarExtrato(opts = {}) {
 
   let saldoAcum = saldoAnteriorMes;
   let htmlLanc = '';
+
+  // Dia filtrado (o saldo acumulado continua considerando todos os dias anteriores)
+  const chaveFiltro = `${conta.id}|${anoAtual}-${mesAtual}`;
+  const diaFiltro = (extratoFiltroDia.chave === chaveFiltro && grupos[extratoFiltroDia.dia]) ? extratoFiltroDia.dia : '';
+  const diasMes = Object.keys(grupos).sort();
+  const htmlFiltroDia = diasMes.length > 1 ? `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <span style="font-size:13px;color:#64748b;white-space:nowrap;">📅 Dia</span>
+      <select onchange="filtrarDiaExtrato(this.value)" style="flex:1;margin:0;">
+        <option value="">Todos os dias (${diasMes.length})</option>
+        ${diasMes.map(d => {
+          const dt = new Date(d + 'T12:00:00');
+          const sem = dt.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+          const n = grupos[d].length;
+          return `<option value="${d}" ${d === diaFiltro ? 'selected' : ''}>${d.slice(8,10)}/${d.slice(5,7)} · ${sem} · ${n} ${n === 1 ? 'lançamento' : 'lançamentos'}</option>`;
+        }).join('')}
+      </select>
+    </div>` : '';
 
   if (lancamentos.length === 0) {
     htmlLanc = `<div style="text-align:center;padding:40px;color:#94a3b8;">
@@ -4635,6 +5412,7 @@ async function renderizarExtrato(opts = {}) {
       const grupo = grupos[data];
       const movDia = grupo.reduce((s, l) => s + (l.tipo === 'receita' ? Number(l.valor) : -Number(l.valor)), 0);
       saldoAcum += movDia;
+      if (diaFiltro && data !== diaFiltro) return;
       const dt = new Date(data + 'T12:00:00');
       const dataBR = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).toUpperCase();
       const corSaldoDia = saldoAcum >= 0 ? '#059669' : '#dc2626';
@@ -4724,7 +5502,7 @@ async function renderizarExtrato(opts = {}) {
           <div style="font-weight:700;font-size:16px;color:#dc2626;">${R$(despesasMes)}</div>
         </div>
         <div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Saldo atual</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Saldo lançado</div>
           <div style="font-weight:700;font-size:16px;color:${saldoFinal>=0?'#059669':'#dc2626'};">${R$(saldoFinal)}</div>
         </div>
       </div>
@@ -4732,6 +5510,7 @@ async function renderizarExtrato(opts = {}) {
         Saldo anterior ao mês: ${R$(saldoAnteriorMes)}
       </div>
     </div>
+    ${htmlPrevisao}
     ${qtdTotal > 0 ? `
     <div class="card" style="padding:14px 16px;margin-bottom:14px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -4745,10 +5524,255 @@ async function renderizarExtrato(opts = {}) {
         ? `<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Faltam ${R$(valorFaltante)} a conferir</div>`
         : `<div style="font-size:12px;color:#059669;margin-top:6px;">Tudo conferido! ✓</div>`}
     </div>` : ''}
+    ${htmlFiltroDia}
     ${htmlLanc}`;
 
   // Volta para onde o usuário estava antes da atualização
   if (opts.preservarScroll && scrollY != null) window.scrollTo(0, scrollY);
+}
+
+// ============================================================
+// FLUXO DO MÊS, PREVISÃO DE SALDO E SITUAÇÃO
+// Realizado = lançado com data até hoje. Agendado = lançado com data futura.
+// Previsto = ainda não lançado: receitas orçadas, faturas a pagar e orçamento não gasto.
+// ============================================================
+
+// Conta que paga os cartões (ou a primeira conta corrente)
+function idContaPrincipal() {
+  return (cartoes || []).find(c => c.conta_pagamento_id)?.conta_pagamento_id
+    || (contas || []).find(c => c.tipo === 'corrente')?.id || (contas || [])[0]?.id || null;
+}
+
+async function calcularFluxoMes(conta, pre = {}) {
+  const mesStr = String(mesAtual).padStart(2, '0');
+  const inicioMes = pre.inicioMes || `${anoAtual}-${mesStr}-01`;
+  const fimMes = pre.fimMes || `${anoAtual}-${mesStr}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2, '0')}`;
+  let lancamentos = pre.lancamentos, saldoAnteriorMes = pre.saldoAnteriorMes;
+  if (!lancamentos) {
+    const [{ data: lm }, { data: la }] = await Promise.all([
+      sb.from('lancamentos').select('*').eq('conta_id', conta.id)
+        .or('observacao.is.null,observacao.neq.__hol__').gte('data', inicioMes).lte('data', fimMes),
+      sb.from('lancamentos').select('valor,tipo').eq('conta_id', conta.id)
+        .or('observacao.is.null,observacao.neq.__hol__').lt('data', inicioMes)
+    ]);
+    lancamentos = lm || [];
+    saldoAnteriorMes = Number(conta.saldo_inicial || 0) + (la || []).reduce((t, l) => t + (l.tipo === 'receita' ? 1 : -1) * Number(l.valor), 0);
+  }
+
+  const _hj = new Date();
+  const hojeStr = `${_hj.getFullYear()}-${String(_hj.getMonth()+1).padStart(2,'0')}-${String(_hj.getDate()).padStart(2,'0')}`;
+  const refHoje = _hj.getFullYear() * 100 + (_hj.getMonth() + 1);
+  const refMes = anoAtual * 100 + mesAtual;
+  const mesPassado = refMes < refHoje, mesCorrente = refMes === refHoje, mesFuturo = refMes > refHoje;
+  const contaPrincipalId = idContaPrincipal();
+  const ehPrincipal = conta.id === contaPrincipalId;
+  const soma = arr => arr.reduce((t, l) => t + Number(l.valor), 0);
+
+  // Dinheiro de terceiros: fora do resultado, mas dentro do saldo
+  const doMes = lancamentos.filter(l => !categoriaForaDoControle(l.categoria_id));
+  const terc = lancamentos.filter(l => categoriaForaDoControle(l.categoria_id));
+  const tercLiq = terc.reduce((t, l) => t + (l.tipo === 'receita' ? 1 : -1) * Number(l.valor), 0);
+
+  // Realizado x agendado
+  const ocorreu = l => mesPassado || (mesCorrente && l.data <= hojeStr);
+  const ent = { real: soma(doMes.filter(l => l.tipo === 'receita' && ocorreu(l))),
+                agen: soma(doMes.filter(l => l.tipo === 'receita' && !ocorreu(l))), prev: 0 };
+  const sai = { real: soma(doMes.filter(l => l.tipo !== 'receita' && ocorreu(l))),
+                agen: soma(doMes.filter(l => l.tipo !== 'receita' && !ocorreu(l))), prev: 0 };
+
+  // Faturas que vencem no mês, pagas por esta conta e ainda não registradas como pagas
+  const faturasPrev = [];
+  if (!mesPassado) {
+    const cartoesConta = (cartoes || []).filter(c => c.ativo !== false &&
+      (c.conta_pagamento_id ? c.conta_pagamento_id === conta.id : ehPrincipal));
+    if (cartoesConta.length) {
+      const { data: fat } = await sb.from('lancamentos').select('valor, cartao_id')
+        .eq('tipo', 'despesa').in('cartao_id', cartoesConta.map(c => c.id))
+        .gte('data', inicioMes).lte('data', fimMes);
+      const pagos = lancamentos.filter(l => l.observacao === '__pgtofatura__');
+      const refFatura = `(${meses[mesAtual-1]}/${anoAtual})`;
+      for (const c of cartoesConta) {
+        const total = (fat || []).filter(x => x.cartao_id === c.id).reduce((t, x) => t + Number(x.valor), 0);
+        if (total <= 0) continue;
+        const jaPago = pagos.some(pg => (pg.descricao || '').includes(c.nome) && (pg.descricao || '').includes(refFatura));
+        if (!jaPago) faturasPrev.push({ nome: c.nome, venc: c.dia_vencimento, total });
+      }
+    }
+  }
+
+  // Orçamento planejado que ainda não aconteceu, atribuído a esta conta
+  const recOrcPrev = [], despOrcPrev = [];
+  if (!mesPassado) {
+    const [{ data: orc }, { data: lancTodos }] = await Promise.all([
+      sb.from('orcamento').select('categoria_id, valor_planejado').eq('mes', mesAtual).eq('ano', anoAtual),
+      sb.from('lancamentos').select('valor, categoria_id, observacao').gte('data', inicioMes).lte('data', fimMes)
+    ]);
+    const holIds = idsCategoriasHolerite();
+    const realPorCat = {};
+    (lancTodos || []).forEach(l => {
+      if (foraDoMes(l) || !l.categoria_id) return;
+      realPorCat[l.categoria_id] = (realPorCat[l.categoria_id] || 0) + Number(l.valor);
+    });
+    for (const o of (orc || [])) {
+      if (holIds.has(o.categoria_id) || categoriaForaDoControle(o.categoria_id)) continue;
+      const cat = categorias.find(c => c.id === o.categoria_id);
+      if (!cat) continue;
+      const pai = cat.parent_id ? categorias.find(c => c.id === cat.parent_id) : null;
+      const contaCat = cat.conta_padrao_id || pai?.conta_padrao_id || contaPrincipalId;
+      if (contaCat !== conta.id) continue;
+      const ids = [cat.id, ...(cat.parent_id ? [] : categorias.filter(c => c.parent_id === cat.id).map(c => c.id))];
+      const real = ids.reduce((t, id) => t + (realPorCat[id] || 0), 0);
+      const falta = Number(o.valor_planejado) - real;
+      if (falta <= 0.004) continue;
+      (cat.tipo === 'receita' ? recOrcPrev : despOrcPrev).push({ nome: (pai ? pai.nome + ' › ' : '') + cat.nome, falta });
+    }
+  }
+
+  const somaK = (a, k) => a.reduce((t, x) => t + x[k], 0);
+  ent.prev = somaK(recOrcPrev, 'falta');
+  sai.prev = somaK(faturasPrev, 'total') + somaK(despOrcPrev, 'falta');
+  ent.total = ent.real + ent.agen + ent.prev;
+  sai.total = sai.real + sai.agen + sai.prev;
+  const resultado = ent.total - sai.total;
+  const saldoPrevisto = saldoAnteriorMes + resultado + tercLiq;
+  const colchao = Number(conta.colchao_minimo || 0);
+
+  const f = { conta, ent, sai, resultado, saldoAnteriorMes, saldoPrevisto, colchao, tercLiq, temTerceiros: terc.length > 0,
+              faturasPrev, recOrcPrev, despOrcPrev, mesPassado, mesCorrente, mesFuturo };
+  f.selo = seloSituacao(f);
+  return f;
+}
+
+// Classifica o mês: favorável, atenção ou desfavorável
+function seloSituacao(f) {
+  const FAV = { nivel: 'fav', rotulo: 'Favorável', icone: '🟢', cor: '#047857', fundo: '#d1fae5' };
+  const ATE = { nivel: 'ate', rotulo: 'Atenção', icone: '🟡', cor: '#b45309', fundo: '#fef3c7' };
+  const DES = { nivel: 'des', rotulo: 'Desfavorável', icone: '🔴', cor: '#b91c1c', fundo: '#fee2e2' };
+  const r = f.resultado, sp = f.saldoPrevisto, col = f.colchao;
+  const txtCol = col > 0 ? `do colchão de ${R$(col)}` : 'de zero';
+  if (f.mesFuturo || f.mesPassado) {
+    const verbo = f.mesPassado ? 'terminou' : 'deve terminar';
+    return r >= 0 ? { ...FAV, motivo: `O mês ${verbo} com sobra de ${R$(r)}.` }
+                  : { ...DES, motivo: `O mês ${verbo} consumindo ${R$(-r)} da reserva.` };
+  }
+  if (sp < 0) return { ...DES, motivo: `O saldo previsto fica negativo em ${R$(-sp)}.` };
+  if (r < 0 && sp < col) return { ...DES, motivo: `O mês consome ${R$(-r)} da reserva e o saldo fica abaixo ${txtCol}.` };
+  if (r < 0) return { ...ATE, motivo: `O mês consome ${R$(-r)} da reserva, mas o saldo segue acima ${txtCol}.` };
+  if (sp < col) return { ...ATE, motivo: `O mês se paga, mas o saldo previsto fica abaixo ${txtCol}.` };
+  return { ...FAV, motivo: `O mês se paga com sobra de ${R$(r)}${col > 0 ? ' e o saldo fica acima do colchão' : ''}.` };
+}
+
+function _pillSelo(sel) {
+  return `<span style="background:${sel.fundo};color:${sel.cor};border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap;">${sel.icone} ${sel.rotulo}</span>`;
+}
+
+// Card completo (Extrato)
+function htmlCardFluxo(f) {
+  const sinal = v => (v >= 0 ? '+ ' : '− ') + R$(Math.abs(v));
+  const corRes = f.resultado >= 0 ? '#059669' : '#dc2626';
+  const partes = (x) => {
+    const p = [];
+    p.push(`realizado ${R$(x.real)}`);
+    if (!f.mesPassado) p.push(`agendado ${R$(x.agen)}`);
+    if (!f.mesPassado) p.push(`previsto ${R$(x.prev)}`);
+    return p.join(' · ');
+  };
+  const linhaDet = (rot, v) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#64748b;padding:3px 0 3px 10px;"><span>${rot}</span><span style="white-space:nowrap;">${R$(v)}</span></div>`;
+  const detalhes =
+    (f.recOrcPrev.length ? `<div style="font-size:12px;font-weight:600;color:#059669;margin-top:8px;">Receitas orçadas a receber</div>` + f.recOrcPrev.map(x => linhaDet(x.nome, x.falta)).join('') : '') +
+    (f.faturasPrev.length ? `<div style="font-size:12px;font-weight:600;color:#7c3aed;margin-top:8px;">Faturas a pagar</div>` + f.faturasPrev.map(x => linhaDet(`💳 ${x.nome} — dia ${x.venc}`, x.total)).join('') : '') +
+    (f.despOrcPrev.length ? `<div style="font-size:12px;font-weight:600;color:#dc2626;margin-top:8px;">Orçado ainda não gasto</div>` + [...f.despOrcPrev].sort((a, b) => b.falta - a.falta).map(x => linhaDet(x.nome, x.falta)).join('') : '');
+  const ultimo = `${ultimoDiaDoMes(anoAtual, mesAtual)}/${String(mesAtual).padStart(2, '0')}`;
+
+  return `
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+        <div style="font-weight:700;font-size:15px;">📊 Fluxo de ${meses[mesAtual-1]}</div>
+        ${_pillSelo(f.selo)}
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:12px;">${f.selo.motivo}</div>
+
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:14px;font-weight:600;color:#059669;">↑ Entradas</span>
+        <span style="font-size:15px;font-weight:700;">${R$(f.ent.total)}</span>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin:2px 0 10px;">${partes(f.ent)}</div>
+
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:14px;font-weight:600;color:#dc2626;">↓ Saídas</span>
+        <span style="font-size:15px;font-weight:700;">${R$(f.sai.total)}</span>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin:2px 0 10px;">${partes(f.sai)}</div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #f1f5f9;padding-top:10px;">
+        <span style="font-size:14px;font-weight:700;">Resultado do mês</span>
+        <span style="font-size:17px;font-weight:700;color:${corRes};">${sinal(f.resultado)}</span>
+      </div>
+
+      ${(f.mesCorrente || f.mesPassado) ? `
+      <div style="background:#f8fafc;border-radius:10px;padding:10px 12px;margin-top:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Saldo no início do mês</span><span>${R$(f.saldoAnteriorMes)}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;"><span>Resultado do mês</span><span>${sinal(f.resultado)}</span></div>
+        ${f.temTerceiros ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#0369a1;"><span>🤝 Recursos de terceiros</span><span>${sinal(f.tercLiq)}</span></div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:6px;">
+          <span>${f.mesPassado ? 'Saldo final' : 'Saldo previsto em ' + ultimo}</span>
+          <span style="color:${f.saldoPrevisto >= 0 ? '#059669' : '#dc2626'};">${R$(f.saldoPrevisto)}</span>
+        </div>
+        ${f.mesCorrente ? `<div style="font-size:12px;color:#94a3b8;margin-top:6px;">Colchão mínimo: ${f.colchao > 0 ? R$(f.colchao) : 'não definido'} · <a href="#" onclick="event.preventDefault();definirColchao('${f.conta.id}')" style="color:#4f46e5;">${f.colchao > 0 ? 'alterar' : 'definir'}</a></div>` : ''}
+      </div>` : `<div style="font-size:12px;color:#94a3b8;margin-top:8px;">O saldo previsto aparece no mês corrente; em meses futuros, use o resultado do mês.</div>`}
+      ${detalhes ? `<details style="margin-top:10px;"><summary style="font-size:13px;color:#4f46e5;cursor:pointer;">Ver o que compõe o previsto</summary>${detalhes}</details>` : ''}
+    </div>`;
+}
+
+// Card resumido (Início)
+function htmlCardSituacao(f) {
+  const sinal = v => (v >= 0 ? '+ ' : '− ') + R$(Math.abs(v));
+  const ultimo = `${ultimoDiaDoMes(anoAtual, mesAtual)}/${String(mesAtual).padStart(2, '0')}`;
+  return `
+    <div class="card" style="padding:14px 16px;margin-bottom:14px;cursor:pointer;border-left:4px solid ${f.selo.cor};" onclick="abrirFluxoNoExtrato('${f.conta.id}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span style="font-weight:700;font-size:15px;">🧭 Situação de ${meses[mesAtual-1]}</span>
+        ${_pillSelo(f.selo)}
+      </div>
+      <div style="font-size:12px;color:#64748b;margin:4px 0 10px;">${f.selo.motivo}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">Resultado do mês</div>
+          <div style="font-size:16px;font-weight:700;color:${f.resultado >= 0 ? '#059669' : '#dc2626'};">${sinal(f.resultado)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">${f.mesPassado ? 'Saldo final' : f.mesFuturo ? 'Saldo previsto' : 'Saldo em ' + ultimo}</div>
+          <div style="font-size:16px;font-weight:700;color:${f.saldoPrevisto >= 0 ? '#059669' : '#dc2626'};">${f.mesFuturo ? '—' : R$(f.saldoPrevisto)}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:8px;">${f.conta.nome} · ver detalhes ▶</div>
+    </div>`;
+}
+
+function abrirFluxoNoExtrato(contaId) {
+  extratoContaAtual = contaId;
+  navegarPara('extrato');
+}
+
+async function definirColchao(contaId) {
+  const conta = contas.find(c => c.id === contaId);
+  const atual = Number(conta?.colchao_minimo || 0);
+  const resp = prompt('Colchão mínimo para esta conta (saldo abaixo disso acende "Atenção"):', atual ? String(atual).replace('.', ',') : '');
+  if (resp === null) return;
+  const valor = Number(String(resp).replace(/\./g, '').replace(',', '.')) || 0;
+  const { error } = await sb.from('contas').update({ colchao_minimo: valor }).eq('id', contaId);
+  if (error) { toast('Não foi possível salvar o colchão. A coluna colchao_minimo já foi criada no banco?', 'erro'); return; }
+  toast('Colchão mínimo salvo', 'ok');
+  await carregarContas();
+  if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
+  if (paginaAtual === 'dashboard') renderizarDashboard();
+}
+
+// Filtro de dia do Extrato: vale só para a conta e o mês em que foi escolhido
+let extratoFiltroDia = { chave: '', dia: '' };
+function filtrarDiaExtrato(dia) {
+  extratoFiltroDia = { chave: `${extratoContaAtual}|${anoAtual}-${mesAtual}`, dia };
+  renderizarExtrato();
 }
 
 function trocarContaExtrato(id) {
@@ -5348,7 +6372,9 @@ const HOL_FIELDS = [
 
 // Encontra categoria pelo nome ou cria automaticamente
 async function encontrarOuCriarCatHol(catNome, tipo, icone) {
-  let cat = categorias.find(c => c.nome === catNome && c.tipo === tipo);
+  // Prefere a categoria que está no grupo do holerite; só usa outra com o mesmo nome se não houver
+  const candidatas = categorias.filter(c => c.nome === catNome && c.tipo === tipo);
+  const cat = candidatas.find(_ehCatHolerite) || candidatas[0];
   if (cat) return cat.id;
   const uid = (await sb.auth.getUser()).data.user.id;
   const { data } = await sb.from('categorias').insert({ user_id: uid, nome: catNome, tipo, icone }).select().single();
@@ -5591,10 +6617,10 @@ async function renderizarPoupanca() {
   const { data: configPoupa } = await sb.from('config_poupanca_mensal').select('*').eq('mes', mesAtual).eq('ano', anoAtual).maybeSingle();
 
   const percPoupa = configPoupa?.percentual || 0;
-  const { data: lanc } = await sb.from('lancamentos').select('valor, observacao').eq('tipo','receita')
+  const { data: lanc } = await sb.from('lancamentos').select('valor, observacao, categoria_id').eq('tipo','receita')
     .gte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`)
     .lte('data', `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`);
-  const totalReceitas = (lanc||[]).filter(l => l.observacao !== '__hol__').reduce((s,l)=>s+Number(l.valor),0);
+  const totalReceitas = (lanc||[]).filter(l => !foraDoMes(l)).reduce((s,l)=>s+Number(l.valor),0);
   const metaMensal = totalReceitas * (percPoupa / 100);
 
   const aportesMes = (aportes||[]).filter(a => a.mes === mesAtual && a.ano === anoAtual);
@@ -5835,6 +6861,7 @@ async function renderizarConfig() {
   await carregarFavorecidos();
   await carregarGrupos();
   await carregarRecorrencias();
+  await carregarRegras();
 
   const despesas = categorias.filter(c => c.tipo === 'despesa' && !c.parent_id);
   const receitas = categorias.filter(c => c.tipo === 'receita' && !c.parent_id);
@@ -5844,7 +6871,7 @@ async function renderizarConfig() {
     return `
       <div style="margin-bottom:8px;background:#f8fafc;border-radius:10px;padding:10px 12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-weight:600;font-size:15px;">${c.icone||'📁'} ${c.nome}</span>
+          <span style="font-weight:600;font-size:15px;">${c.icone||'📁'} ${c.nome}${c.fora_do_controle ? ' <span style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:999px;padding:1px 7px;font-weight:600;">🤝 fora do controle</span>' : ''}</span>
           <div style="display:flex;gap:6px;">
             <button onclick="abrirNovaSubcategoria('${c.id}','${c.tipo}')" style="background:#ede9fe;color:#6d28d9;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;">+ Subcategoria</button>
             <button onclick="editarCategoria('${c.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;">✏️</button>
@@ -5853,7 +6880,7 @@ async function renderizarConfig() {
         ${subs.length > 0 ? `<div style="margin-top:8px;padding-left:12px;border-left:2px solid #e2e8f0;">
           ${subs.map(s => `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;">
-              <span style="font-size:14px;color:#374151;">${s.icone||'📁'} ${s.nome}</span>
+              <span style="font-size:14px;color:#374151;">${s.icone||'📁'} ${s.nome}${(s.fora_do_controle && !c.fora_do_controle) ? ' <span style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:999px;padding:1px 7px;font-weight:600;">🤝</span>' : ''}</span>
               <button onclick="editarCategoria('${s.id}')" style="background:none;border:none;font-size:13px;color:#94a3b8;cursor:pointer;">✏️</button>
             </div>`).join('')}
         </div>` : ''}
@@ -5861,6 +6888,22 @@ async function renderizarConfig() {
   }).join('');
 
   el.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-weight:700;font-size:15px;">⚡ Regras de categorização</div>
+        <span style="font-size:12px;color:#94a3b8;">${regras.length}</span>
+      </div>
+      ${regras.length ? regras.map(r => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;background:#f8fafc;border-radius:8px;margin-bottom:6px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">"${r.padrao}"</div>
+            <div style="font-size:12px;color:#94a3b8;">→ ${r.categorias?.icone || '📁'} ${r.categorias?.nome || 'categoria removida'}${r.favorecidos ? ' • ' + r.favorecidos.nome : ''} • usada ${r.usos || 0}x</div>
+          </div>
+          <button onclick="excluirRegra('${r.id}')" style="background:none;border:none;font-size:14px;color:#94a3b8;cursor:pointer;">🗑️</button>
+        </div>`).join('')
+        : `<div style="font-size:13px;color:#94a3b8;">Nenhuma regra ainda. Crie na importação de extrato, pelo link "⚡ Criar regra" de cada transação.</div>`}
+    </div>
+
     <div class="card" style="padding:16px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <div style="font-weight:700;font-size:15px;">🏦 Contas Bancárias</div>
@@ -5905,9 +6948,14 @@ async function renderizarConfig() {
           <div>
             <div style="font-weight:600;font-size:14px;">${icone} ${nome}</div>
             <div style="font-size:12px;color:#94a3b8;">R$ ${Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})} • dia ${r.dia_do_mes} • ${forma}</div>
+            <div style="font-size:12px;color:${r.meses && r.meses.length ? '#4f46e5' : '#94a3b8'};">📅 ${resumoMeses(r.meses)}</div>
           </div>
-          <button onclick="desativarRecorrencia('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Cancelar</button>
-        </div>`;
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button onclick="abrirEdicaoMesesRec('${r.id}')" style="background:#eef2ff;color:#4f46e5;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Meses</button>
+            <button onclick="desativarRecorrencia('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Cancelar</button>
+          </div>
+        </div>
+        <div id="rec-meses-edit-${r.id}" class="hidden"></div>`;
       }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhuma recorrência ativa. Marque "Repete todo mês" ao criar um lançamento.</div>'}
       </div>
     </div>
@@ -6016,6 +7064,39 @@ function abrirSubcatParaImport(i) {
   abrirNovaSubcategoria(catId, cat?.tipo || 'despesa');
 }
 
+// Ajusta a caixa "fora do controle": se o pai já está marcado, a subcategoria herda
+function _atualizarCampoFundo() {
+  const chk = document.getElementById('cat-fora-controle');
+  const grupo = document.getElementById('cat-fundo-group');
+  if (grupo) grupo.classList.toggle('hidden', !chk.checked);
+}
+
+function _prepararForaControle(marcado, parentId, fundoAtual = '') {
+  const chk = document.getElementById('cat-fora-controle');
+  const ajuda = document.getElementById('cat-fora-ajuda');
+  const pai = parentId ? categorias.find(c => c.id === parentId) : null;
+  // Sugestões de fundos já existentes
+  const lista = document.getElementById('cat-fundo-lista');
+  if (lista) lista.innerHTML = [...new Set(categorias.map(c => c.fundo).filter(Boolean))].map(f => `<option value="${f}">`).join('');
+  const inpFundo = document.getElementById('cat-fundo');
+  const ajudaFundo = document.getElementById('cat-fundo-ajuda');
+  if (inpFundo) {
+    inpFundo.value = fundoAtual || '';
+    inpFundo.disabled = !!pai?.fundo;
+    if (pai?.fundo) { inpFundo.value = pai.fundo; ajudaFundo.textContent = `Herdado de "${pai.nome}".`; }
+    else ajudaFundo.textContent = 'Categorias com o mesmo fundo são somadas juntas: entradas, saídas e saldo.';
+  }
+  chk.onchange = _atualizarCampoFundo;
+  setTimeout(_atualizarCampoFundo, 0);
+  if (pai?.fora_do_controle) {
+    chk.checked = true; chk.disabled = true;
+    ajuda.textContent = `Herdado de "${pai.nome}": toda a categoria está fora do controle mensal.`;
+  } else {
+    chk.checked = !!marcado; chk.disabled = false;
+    ajuda.textContent = 'Dinheiro de terceiros que passa pela sua conta: não entra em receitas, despesas, orçamento nem relatório, mas continua no saldo da conta.';
+  }
+}
+
 function abrirModalCategoria(tipoDefault = 'despesa') {
   document.getElementById('cat-id').value = '';
   document.getElementById('modal-cat-titulo').textContent = 'Nova Categoria';
@@ -6023,6 +7104,7 @@ function abrirModalCategoria(tipoDefault = 'despesa') {
   document.getElementById('cat-icone').value = '📁';
   document.getElementById('cat-icone-preview').textContent = '📁';
   document.getElementById('cat-holerite-tipo').value = '';
+  _prepararForaControle(false, null);
   document.getElementById('cat-btn-excluir').classList.add('hidden');
   document.getElementById('cat-tipo-group').classList.remove('hidden');
   document.getElementById('cat-parent-group').classList.add('hidden');
@@ -6037,6 +7119,7 @@ function abrirNovaSubcategoria(parentId, tipo) {
   document.getElementById('cat-icone').value = '📁';
   document.getElementById('cat-icone-preview').textContent = '📁';
   document.getElementById('cat-holerite-tipo').value = '';
+  _prepararForaControle(false, parentId);
   document.getElementById('cat-btn-excluir').classList.add('hidden');
   document.getElementById('cat-tipo-group').classList.add('hidden');
   document.getElementById('cat-tipo').value = tipo;
@@ -6072,6 +7155,8 @@ async function editarCategoria(id) {
   document.getElementById('cat-icone').value = icone;
   document.getElementById('cat-icone-preview').textContent = icone;
   document.getElementById('cat-btn-excluir').classList.remove('hidden');
+  document.getElementById('cat-btn-mover').style.display = c.parent_id ? '' : 'none';
+  _prepararForaControle(c.fora_do_controle, c.parent_id, c.fundo);
   if (c.parent_id) {
     // É subcategoria: mostra seletor de pai, esconde tipo
     document.getElementById('cat-tipo-group').classList.add('hidden');
@@ -6109,13 +7194,20 @@ async function salvarCategoria() {
     : document.getElementById('cat-tipo').value;
   const uid = (await sb.auth.getUser()).data.user.id;
   let newId = null;
+  const extra = {};
+  const chkFora = document.getElementById('cat-fora-controle');
+  if ((categorias[0] && 'fora_do_controle' in categorias[0]) && chkFora && !chkFora.disabled) extra.fora_do_controle = chkFora.checked;
+  const inpFundo = document.getElementById('cat-fundo');
+  if ((categorias[0] && 'fundo' in categorias[0]) && inpFundo && !inpFundo.disabled) {
+    extra.fundo = (chkFora && chkFora.checked && inpFundo.value.trim()) ? inpFundo.value.trim() : null;
+  }
   if (id) {
-    const { error } = await sb.from('categorias').update({ nome, icone, tipo, parent_id: parentId }).eq('id', id);
+    const { error } = await sb.from('categorias').update({ nome, icone, tipo, parent_id: parentId, ...extra }).eq('id', id);
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     newId = id;
     toast('Categoria atualizada!', 'ok');
   } else {
-    const { data, error } = await sb.from('categorias').insert({ user_id: uid, nome, icone, tipo, parent_id: parentId }).select().single();
+    const { data, error } = await sb.from('categorias').insert({ user_id: uid, nome, icone, tipo, parent_id: parentId, ...extra }).select().single();
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     newId = data?.id;
     toast('Categoria criada!', 'ok');
@@ -6127,8 +7219,10 @@ async function salvarCategoria() {
     window._catModoRapido = false;
     const tipoLanc = getTipoLancamento ? getTipoLancamento() : tipo;
     popularSelectCategorias('lanc-categoria', tipoLanc);
-    document.getElementById('lanc-categoria').value = newId;
+    // Subcategoria: seleciona o pai no campo Categoria e ela no campo Subcategoria
+    document.getElementById('lanc-categoria').value = parentId || newId;
     atualizarSubcategorias();
+    if (parentId) document.getElementById('lanc-subcategoria').value = newId;
     return;
   }
   // Callback de importacao
@@ -6141,15 +7235,187 @@ async function salvarCategoria() {
   if (paginaAtual === 'config') renderizarConfig();
 }
 
-async function excluirCategoria() {
-  if (!confirm('Excluir esta categoria? As subcategorias também serão excluídas.')) return;
-  const id = document.getElementById('cat-id').value;
-  await sb.from('categorias').delete().eq('id', id);
+// ============================================================
+// MOVER / EXCLUIR CATEGORIA COM REALOCAÇÃO DOS LANÇAMENTOS
+// ============================================================
+let _realoc = null;   // { modo: 'mover' | 'excluir', origem: categoria }
+
+// Conta onde a categoria está em uso
+async function contarUsoCategoria(id) {
+  const contar = async (tabela) => {
+    const { count } = await sb.from(tabela).select('id', { count: 'exact', head: true }).eq('categoria_id', id);
+    return count || 0;
+  };
+  const [lanc, rec, reg, orc] = await Promise.all(
+    ['lancamentos', 'recorrencias', 'regras_categorizacao', 'orcamento'].map(contar)
+  );
+  return { lanc, rec, reg, orc, total: lanc + rec + reg + orc };
+}
+
+function textoUso(u) {
+  const partes = [];
+  const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+  if (u.lanc) partes.push(pl(u.lanc, 'lançamento', 'lançamentos'));
+  if (u.rec)  partes.push(pl(u.rec, 'recorrência', 'recorrências'));
+  if (u.reg)  partes.push(pl(u.reg, 'regra', 'regras'));
+  if (u.orc)  partes.push(pl(u.orc, 'orçamento', 'orçamentos'));
+  if (!partes.length) return '';
+  return partes.length === 1 ? partes[0] : partes.slice(0, -1).join(', ') + ' e ' + partes.slice(-1);
+}
+
+function _rotuloCat(c) { return (c.icone || '📁') + ' ' + c.nome; }
+
+// (a realocação de categorias agora é feita no banco pela função realocar_categoria)
+
+// --- MOVER subcategoria para outra categoria ---
+async function abrirMoverSubcategoria() {
+  const origem = categorias.find(c => c.id === document.getElementById('cat-id').value);
+  if (!origem || !origem.parent_id) return;
+  _realoc = { modo: 'mover', origem };
+
+  const destinos = categorias.filter(c => c.tipo === origem.tipo && !c.parent_id && c.id !== origem.parent_id);
+  if (!destinos.length) { toast('Não há outra categoria de ' + origem.tipo + ' para onde mover', 'erro'); return; }
+
+  document.getElementById('realoc-titulo').textContent = 'Mover "' + origem.nome + '"';
+  document.getElementById('realoc-cat-label').textContent = 'Mover para a categoria';
+  document.getElementById('realoc-sub-group').classList.add('hidden');
+  document.getElementById('realoc-btn').textContent = 'Mover';
+  document.getElementById('realoc-btn').className = 'btn-primary';
+  const sel = document.getElementById('realoc-cat');
+  sel.innerHTML = '<option value="">Selecione...</option>' + destinos.map(c => `<option value="${c.id}">${_rotuloCat(c)}</option>`).join('');
+
+  const imp = document.getElementById('realoc-impacto');
+  imp.textContent = 'Calculando...';
+  abrirModal('modal-realocar');
+  atualizarRealocSub();
+  const u = await contarUsoCategoria(origem.id);
+  const t = textoUso(u);
+  imp.innerHTML = t
+    ? `Vão junto automaticamente: <b>${t}</b>.`
+    : 'Nenhum lançamento usa esta subcategoria ainda.';
+}
+
+// --- EXCLUIR categoria/subcategoria, perguntando o destino ---
+async function abrirExcluirCategoria() {
+  const origem = categorias.find(c => c.id === document.getElementById('cat-id').value);
+  if (!origem) return;
+
+  const subs = categorias.filter(c => c.parent_id === origem.id);
+  if (subs.length) {
+    alert(`"${origem.nome}" tem ${subs.length} subcategoria(s). Mova ou exclua as subcategorias antes de excluir a categoria.`);
+    return;
+  }
+
+  const u = await contarUsoCategoria(origem.id);
+  if (u.total === 0) {
+    if (!confirm(`Excluir "${origem.nome}"? Nenhum lançamento usa esta ${origem.parent_id ? 'subcategoria' : 'categoria'}.`)) return;
+    const { error } = await sb.from('categorias').delete().eq('id', origem.id);
+    if (error) { toast('Erro ao excluir: ' + error.message, 'erro'); return; }
+    await carregarCategorias();
+    fecharModal('modal-categoria');
+    toast('Excluída', 'ok');
+    renderizarConfig();
+    return;
+  }
+
+  _realoc = { modo: 'excluir', origem };
+  const destinos = categorias.filter(c => c.tipo === origem.tipo && !c.parent_id && c.id !== origem.id);
+  if (!destinos.length) { toast('Crie outra categoria de ' + origem.tipo + ' para receber os lançamentos', 'erro'); return; }
+
+  document.getElementById('realoc-titulo').textContent = 'Excluir "' + origem.nome + '"';
+  document.getElementById('realoc-cat-label').textContent = 'Mover os lançamentos para a categoria';
+  document.getElementById('realoc-btn').textContent = 'Mover e excluir';
+  document.getElementById('realoc-btn').className = 'btn-danger';
+  document.getElementById('realoc-impacto').innerHTML =
+    `Esta ${origem.parent_id ? 'subcategoria' : 'categoria'} está em uso por <b>${textoUso(u)}</b>. Escolha para onde transferir antes de excluir.`;
+  const sel = document.getElementById('realoc-cat');
+  sel.innerHTML = '<option value="">Selecione...</option>' + destinos.map(c => `<option value="${c.id}">${_rotuloCat(c)}</option>`).join('');
+  if (origem.parent_id && destinos.some(d => d.id === origem.parent_id)) sel.value = origem.parent_id;
+  abrirModal('modal-realocar');
+  atualizarRealocSub();
+}
+
+// Atualiza a lista de subcategorias de destino (excluir) ou o aviso de nome repetido (mover)
+function atualizarRealocSub() {
+  if (!_realoc) return;
+  const { modo, origem } = _realoc;
+  const catId = document.getElementById('realoc-cat').value;
+  const aviso = document.getElementById('realoc-aviso');
+  aviso.textContent = '';
+
+  if (modo === 'mover') {
+    if (!catId) return;
+    const conflito = categorias.find(c => c.parent_id === catId && c.id !== origem.id &&
+      c.nome.trim().toLowerCase() === origem.nome.trim().toLowerCase());
+    if (conflito) aviso.textContent = `Já existe "${conflito.nome}" nessa categoria. Ao confirmar, as duas serão unificadas.`;
+    return;
+  }
+
+  // modo excluir
+  const grupo = document.getElementById('realoc-sub-group');
+  const subSel = document.getElementById('realoc-sub');
+  const subs = categorias.filter(c => c.parent_id === catId && c.id !== origem.id);
+  if (!catId || !subs.length) {
+    grupo.classList.add('hidden');
+    subSel.innerHTML = '';
+    return;
+  }
+  grupo.classList.remove('hidden');
+  subSel.innerHTML = '<option value="">Selecione...</option>' + subs.map(c => `<option value="${c.id}">${_rotuloCat(c)}</option>`).join('');
+}
+
+async function confirmarRealocacao() {
+  if (!_realoc) return;
+  const { modo, origem } = _realoc;
+  const catId = document.getElementById('realoc-cat').value;
+  if (!catId) { toast('Escolha a categoria de destino', 'erro'); return; }
+  const btn = document.getElementById('realoc-btn');
+  btn.disabled = true;
+
+  try {
+    if (modo === 'mover') {
+      const conflito = categorias.find(c => c.parent_id === catId && c.id !== origem.id &&
+        c.nome.trim().toLowerCase() === origem.nome.trim().toLowerCase());
+      if (conflito) {
+        // Unifica numa transação única no banco: transfere tudo e exclui a origem
+        const { error } = await sb.rpc('realocar_categoria', { p_origem: origem.id, p_destino: conflito.id });
+        if (error) throw new Error(error.message);
+        toast(`Unificada com "${conflito.nome}"`, 'ok');
+      } else {
+        // Basta trocar o pai: os lançamentos apontam para a subcategoria e vão junto
+        const { error } = await sb.from('categorias').update({ parent_id: catId }).eq('id', origem.id);
+        if (error) throw new Error(error.message);
+        const destino = categorias.find(c => c.id === catId);
+        toast(`"${origem.nome}" movida para ${destino?.nome || 'a nova categoria'}`, 'ok');
+      }
+    } else {
+      const subVisivel = !document.getElementById('realoc-sub-group').classList.contains('hidden');
+      const subId = document.getElementById('realoc-sub').value;
+      if (subVisivel && !subId) { toast('Escolha a subcategoria de destino', 'erro'); btn.disabled = false; return; }
+      const destinoId = subVisivel ? subId : catId;
+      // Transfere lançamentos, recorrências, regras e orçamentos e exclui a origem — tudo ou nada
+      const { error } = await sb.rpc('realocar_categoria', { p_origem: origem.id, p_destino: destinoId });
+      if (error) throw new Error(error.message);
+      const d = categorias.find(c => c.id === destinoId);
+      toast(`Lançamentos movidos para "${d?.nome || 'destino'}" e "${origem.nome}" excluída`, 'ok');
+    }
+  } catch (e) {
+    toast('Erro: ' + e.message, 'erro');
+    btn.disabled = false;
+    return;
+  }
+
+  btn.disabled = false;
+  _realoc = null;
   await carregarCategorias();
-  toast('Categoria excluída', 'ok');
+  if (typeof carregarRegras === 'function') await carregarRegras();
+  fecharModal('modal-realocar');
   fecharModal('modal-categoria');
   renderizarConfig();
 }
+
+// Mantido por compatibilidade: a exclusão agora sempre passa pela realocação
+async function excluirCategoria() { return abrirExcluirCategoria(); }
 
   </script>
 </body>
