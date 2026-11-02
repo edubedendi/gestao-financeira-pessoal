@@ -688,7 +688,7 @@
       <h3 style="margin:0;font-size:18px;font-weight:700;">Importar Extrato</h3>
       <button onclick="fecharModal('modal-importar')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
-    <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Cole o texto do extrato bancário abaixo. O sistema tentará identificar as transações automaticamente.</p>
+    <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Escolha o arquivo <b>OFX</b> do banco (recomendado) ou cole o texto do extrato abaixo.</p>
     <div style="margin-bottom:16px;">
       <label>Conta</label>
       <select id="import-conta">
@@ -696,7 +696,12 @@
       </select>
     </div>
     <div style="margin-bottom:16px;">
-      <label>Texto do Extrato</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <label style="margin:0;">Texto do Extrato</label>
+        <label class="btn-secondary btn-sm" style="cursor:pointer;margin:0;">📂 Escolher arquivo OFX
+          <input type="file" id="extrato-arquivo" accept=".ofx,.OFX,.ofc,.txt" style="display:none;" onchange="carregarArquivoExtrato(this)" />
+        </label>
+      </div>
       <textarea id="extrato-texto" rows="8" placeholder="Cole aqui o conteúdo do extrato...&#10;&#10;Exemplo:&#10;15/05 SUPERMERCADO EXTRA -250,00&#10;16/05 PIX RECEBIDO +1500,00&#10;17/05 IFOOD -45,80"></textarea>
     </div>
     <button class="btn-primary" onclick="processarExtrato()">🔍 Analisar Extrato</button>
@@ -3758,6 +3763,173 @@ function atualizarSubcatImport(i) {
 }
 
 // Parser para extrato Bradesco (cada campo em linha separada)
+// ============================================================
+// IMPORTAÇÃO OFX
+// O FITID do Bradesco vem como "N20224:20/10/26:-270.6:0000128: Compra Visa: Atacadao 833 as"
+// → partes: id interno, data, valor, documento, TIPO, ESTABELECIMENTO (pode conter ":")
+// ============================================================
+function _semAcentoImp(t) { return (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+
+function parsearOFX(texto) {
+  if (!/<STMTTRN>/i.test(texto)) return null;
+  const tag = (bloco, nome) => { const m = bloco.match(new RegExp('<' + nome + '>([^\\r\\n<]*)', 'i')); return m ? m[1].trim() : ''; };
+  const limpa = t => (t || '').replace(/\s+/g, ' ').trim();
+  const blocos = texto.split(/<STMTTRN>/i).slice(1).map(b => b.split(/<\/STMTTRN>/i)[0]);
+  const transacoes = [];
+  for (const b of blocos) {
+    const valorNum = parseFloat(tag(b, 'TRNAMT').replace(',', '.'));
+    const dt = tag(b, 'DTPOSTED');
+    if (!isFinite(valorNum) || valorNum === 0 || dt.length < 8) continue;
+    const data = `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`;
+    const memo = limpa(tag(b, 'MEMO'));
+    const doc = tag(b, 'CHECKNUM');
+    const partes = tag(b, 'FITID').split(':');
+    let tipoBanco = '', complemento = '';
+    if (partes.length >= 5) {
+      tipoBanco = limpa(partes[4]);
+      complemento = limpa(partes.slice(5).join(':'));
+    } else {
+      tipoBanco = memo;
+    }
+    // Movimentações automáticas do Invest Fácil (aplicação/resgate de principal) não são gastos nem receitas
+    const nt = _semAcentoImp(tipoBanco);
+    if (/^(aplic|resg)/.test(nt) && /inv(est)?\.?\s*facil/.test(nt)) continue;
+    // Pix: "Des: Fulano 20/10" → "Fulano"
+    let estab = complemento.replace(/^(des|rem)\s*:\s*/i, '').replace(/\s+\d{2}\/\d{2}$/, '').trim();
+    const descricao = estab || tipoBanco || memo || 'Lançamento';
+    const notaPartes = [];
+    if (estab && tipoBanco) notaPartes.push(tipoBanco);
+    if (doc) notaPartes.push('doc ' + doc);
+    transacoes.push({
+      data, descricao,
+      valor: Math.abs(valorNum),
+      tipo: valorNum < 0 ? 'despesa' : 'receita',
+      selecionado: true,
+      nota: notaPartes.join(' · '),
+      // Extrato da conta: tudo saiu/entrou na conta → Pix ou Débito (crédito fica na fatura do cartão)
+      forma: /pix/i.test(tipoBanco || memo) ? 'pix' : 'debito',
+      doc
+    });
+  }
+  // Saldo informado pelo banco
+  const saldoBloco = (texto.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i) || [])[1] || '';
+  const saldo = parseFloat((tag(saldoBloco, 'BALAMT') || '').replace(',', '.'));
+  const dtSaldo = tag(saldoBloco, 'DTASOF');
+  transacoes.meta = isFinite(saldo) && dtSaldo.length >= 8
+    ? { saldo, dataSaldo: `${dtSaldo.slice(0, 4)}-${dtSaldo.slice(4, 6)}-${dtSaldo.slice(6, 8)}` }
+    : null;
+  return transacoes;
+}
+
+// Compara o saldo informado pelo banco com o saldo que a conta terá no app após importar
+async function _conferirSaldoImportacao(transacoes) {
+  const el = document.getElementById('extrato-conferencia-saldo');
+  const contaId = document.getElementById('import-conta')?.value;
+  const { saldo, dataSaldo } = transacoes.meta;
+  const dataBR = d => d.slice(8, 10) + '/' + d.slice(5, 7);
+  if (!el) return;
+  if (!contaId) {
+    el.innerHTML = `<div style="font-size:12px;color:#64748b;background:#f8fafc;border-radius:8px;padding:8px 10px;margin-bottom:12px;">Saldo no banco em ${dataBR(dataSaldo)}: <b>${R$(saldo)}</b>. Escolha a conta acima e analise de novo para conferir com o app.</div>`;
+    return;
+  }
+  const atual = await saldoContaAte(contaId, dataSaldo);
+  if (atual === null) return;
+  const novos = transacoes.filter(t => !t.duplicado && t.data <= dataSaldo)
+    .reduce((s2, t) => s2 + (t.tipo === 'receita' ? 1 : -1) * t.valor, 0);
+  const apos = atual + novos;
+  const dif = Math.round((saldo - apos) * 100) / 100;
+  const ok = Math.abs(dif) < 0.01;
+  el.innerHTML = `<div style="font-size:12px;border-radius:8px;padding:8px 10px;margin-bottom:12px;background:${ok ? '#ecfdf5' : '#fef3c7'};color:${ok ? '#047857' : '#92400e'};">
+    Saldo no banco em ${dataBR(dataSaldo)}: <b>${R$(saldo)}</b> · no app após importar: <b>${R$(apos)}</b><br>
+    ${ok ? '✅ Vai bater com o banco.' : `⚠️ Diferença de ${R$(Math.abs(dif))} — algo ${dif > 0 ? 'falta entrar ou sobra de saída' : 'sobra de entrada ou falta sair'} no app até essa data.`}</div>`;
+}
+
+// Lê o arquivo escolhido (OFX do Bradesco vem em windows-1252) e analisa na hora
+function carregarArquivoExtrato(input) {
+  const arq = input.files && input.files[0];
+  if (!arq) return;
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    let texto;
+    try { texto = new TextDecoder('windows-1252').decode(leitor.result); }
+    catch (e) { texto = new TextDecoder().decode(leitor.result); }
+    document.getElementById('extrato-texto').value = texto;
+    input.value = '';
+    processarExtrato();
+  };
+  leitor.readAsArrayBuffer(arq);
+}
+
+// Marca como "já importado" o que já existe na conta: mesma data, valor e tipo,
+// contando um a um (três contas de R$ 75,00 no mesmo dia só batem com três existentes)
+async function marcarDuplicadosImportacao(transacoes) {
+  if (!transacoes.length) return;
+  const contaId = document.getElementById('import-conta')?.value || null;
+  const datas = transacoes.map(t => t.data).sort();
+  let q = sb.from('lancamentos').select('data, valor, tipo')
+    .gte('data', datas[0]).lte('data', datas[datas.length - 1]);
+  q = contaId ? q.eq('conta_id', contaId) : q.is('cartao_id', null);
+  const { data: existentes } = await q;
+  const pool = {};
+  (existentes || []).forEach(l => { const k = `${l.data}|${l.tipo}|${Number(l.valor).toFixed(2)}`; pool[k] = (pool[k] || 0) + 1; });
+  for (const t of transacoes) {
+    const k = `${t.data}|${t.tipo}|${t.valor.toFixed(2)}`;
+    if (pool[k] > 0) { pool[k]--; t.duplicado = true; t.selecionado = false; }
+  }
+}
+
+// Saldo da conta no app até uma data (para conferir com o saldo do banco)
+async function saldoContaAte(contaId, dataLimite) {
+  const conta = contas.find(c => c.id === contaId);
+  if (!conta) return null;
+  const { data } = await sb.from('lancamentos').select('valor, tipo, observacao')
+    .eq('conta_id', contaId).lte('data', dataLimite);
+  return Number(conta.saldo_inicial || 0) + (data || []).filter(l => l.observacao !== '__hol__')
+    .reduce((t, l) => t + (l.tipo === 'receita' ? 1 : -1) * Number(l.valor), 0);
+}
+
+// Favorecido cujo nome aparece no estabelecimento (ou vice-versa)
+function favorecidoPorDescricao(desc) {
+  const d = _semAcentoImp(desc).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (d.length < 3) return null;
+  // 1º: o nome do favorecido aparece no texto do banco (fica com o nome mais longo)
+  // 2º: o texto do banco aparece no nome de UM único favorecido — se couber em vários, não escolhe
+  let melhor = null;
+  const reversos = [];
+  for (const f of favorecidos) {
+    const n = _semAcentoImp(f.nome).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (n.length < 4) continue;
+    if (d === n || d.includes(n)) {
+      if (!melhor || n.length > melhor.n.length) melhor = { f, n };
+    } else if (d.length >= 6 && n.includes(d)) {
+      reversos.push(f);
+    }
+  }
+  if (melhor) return melhor.f;
+  return reversos.length === 1 ? reversos[0] : null;
+}
+
+// Sem regra que se aplique: usa o favorecido reconhecido e a categoria padrão dele
+function aplicarFavorecidoNaLinha(i, descricao) {
+  if (document.getElementById(`tr-fav-${i}`)?.value) return;
+  const fav = favorecidoPorDescricao(descricao);
+  if (!fav) return;
+  setFavCombo(`tr-fav-${i}`, fav.id);
+  const selCat = document.getElementById(`tr-cat-${i}`);
+  const cat = fav.categoria_padrao_id ? categorias.find(c => c.id === fav.categoria_padrao_id) : null;
+  if (cat && selCat && !selCat.value) {
+    const paiId = cat.parent_id || cat.id;
+    if (Array.from(selCat.options).some(o => o.value === paiId)) {
+      selCat.value = paiId;
+      atualizarSubcatImport(i);
+      if (cat.parent_id) { const ss = document.getElementById(`tr-subcat-${i}`); if (ss) ss.value = cat.id; }
+    }
+  }
+  const badge = document.getElementById(`tr-regra-${i}`);
+  if (badge && !badge.querySelector('span')) badge.insertAdjacentHTML('afterbegin',
+    `<span style="background:#e0f2fe;color:#0369a1;border-radius:999px;padding:1px 8px;font-size:11px;margin-right:6px;">👤 ${fav.nome}</span>`);
+}
+
 function parsarExtratoBradesco(texto) {
   const isDataSozinha = (l) => /^\d{2}\/\d{2}\/\d{2,4}$/.test(l);
   const isDocNum     = (l) => /^\d{5,8}$/.test(l);
@@ -3822,6 +3994,15 @@ function parsarExtratoBradesco(texto) {
 async function processarExtrato() {
   const texto = document.getElementById('extrato-texto').value.trim();
   if (!texto) { toast('Cole o texto do extrato', 'erro'); return; }
+
+  // OFX (arquivo do banco): o formato mais confiável
+  const transacoesOFX = parsearOFX(texto);
+  if (transacoesOFX) {
+    if (!transacoesOFX.length) { toast('Nenhum lançamento encontrado no OFX', 'erro'); return; }
+    await marcarDuplicadosImportacao(transacoesOFX);
+    renderizarTransacoesImportadas(transacoesOFX);
+    return;
+  }
 
   // Tenta parser Bradesco (multi-linha) primeiro
   const transacoesBradesco = parsarExtratoBradesco(texto);
@@ -3899,15 +4080,18 @@ function renderizarTransacoesImportadas(transacoes) {
   const el = document.getElementById('extrato-resultado');
   el.classList.remove('hidden');
 
-  let html = `<div style="font-size:14px;font-weight:600;margin-bottom:12px;">${transacoes.length} transações identificadas:</div>`;
+  const qtdDup = transacoes.filter(t => t.duplicado).length;
+  let html = `<div style="font-size:14px;font-weight:600;margin-bottom:4px;">${transacoes.length} transações identificadas</div>
+    ${qtdDup ? `<div style="font-size:12px;color:#b45309;margin-bottom:12px;">${qtdDup} já estavam no app (mesma data e valor) e vieram desmarcadas.</div>` : '<div style="margin-bottom:8px;"></div>'}
+    <div id="extrato-conferencia-saldo"></div>`;
   transacoes.forEach((t, i) => {
-    const formaAuto = detectarForma(t.descricao || '');
+    const formaAuto = t.forma || detectarForma(t.descricao || '');
     html += `
       <div class="card" style="padding:12px;margin-bottom:8px;">
         <div style="display:flex;align-items:start;gap:10px;">
-          <input type="checkbox" id="tr-${i}" checked style="width:auto;margin-top:2px;" />
+          <input type="checkbox" id="tr-${i}" ${t.selecionado === false ? '' : 'checked'} style="width:auto;margin-top:2px;" />
           <div style="flex:1;">
-            <div style="font-weight:600;font-size:13px;margin-bottom:4px;" data-desc="${t.descricao.replace(/"/g,'&quot;')}">${t.descricao}</div>
+            <div style="font-weight:600;font-size:13px;margin-bottom:4px;" data-desc="${t.descricao.replace(/"/g,'&quot;')}">${t.descricao}${t.duplicado ? ' <span style="background:#fef3c7;color:#b45309;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;">já importado</span>' : ''}</div>
             <div id="tr-regra-${i}" style="margin-bottom:6px;min-height:16px;"></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <input type="date" id="tr-data-${i}" value="${t.data}" style="font-size:12px;padding:4px 8px;" />
@@ -3965,7 +4149,7 @@ function renderizarTransacoesImportadas(transacoes) {
               </select>
             </div>
             <div style="margin-top:6px;">
-              <textarea id="tr-obs-${i}" rows="2" placeholder="Nota (opcional)..." style="font-size:12px;padding:4px 8px;width:100%;box-sizing:border-box;resize:vertical;"></textarea>
+              <textarea id="tr-obs-${i}" rows="2" placeholder="Nota (opcional)..." style="font-size:12px;padding:4px 8px;width:100%;box-sizing:border-box;resize:vertical;">${(t.nota || '').replace(/</g, '&lt;')}</textarea>
             </div>
           </div>
         </div>
@@ -3976,7 +4160,8 @@ function renderizarTransacoesImportadas(transacoes) {
   el.innerHTML = html;
 
   // Pré-categoriza cada linha com as regras cadastradas
-  transacoes.forEach((t, i) => aplicarRegraNaLinha(i, t.descricao));
+  transacoes.forEach((t, i) => { aplicarRegraNaLinha(i, t.descricao); aplicarFavorecidoNaLinha(i, t.descricao); });
+  if (transacoes.meta) _conferirSaldoImportacao(transacoes);
   const casadas = transacoes.filter(t => regraPara(t.descricao)).length;
   if (casadas > 0) toast(`${casadas} de ${transacoes.length} categorizadas por regra`, 'ok');
 }
@@ -3998,7 +4183,7 @@ async function confirmarImportacao(total) {
     const catNome = catIdFinal ? (categorias.find(c => c.id === catIdFinal)?.nome || '') : '';
     const descEl = document.getElementById(`tr-${i}`).closest('.card').querySelector('[data-desc]');
     const descOriginal = descEl?.dataset.desc || `Transação ${i+1}`;
-    const desc = favNome || catNome || descOriginal;
+    const desc = favNome || descOriginal || catNome;
     const obs = document.getElementById(`tr-obs-${i}`).value.trim() || null;
     inserts.push({
       user_id: uid,
