@@ -3811,6 +3811,21 @@ function parsearOFX(texto) {
       doc
     });
   }
+  // O OFX do Bradesco junta o período e os "Últimos Lançamentos", que se sobrepõem num dia:
+  // o rendimento do Invest Fácil desse dia vem duas vezes ("Rent.inv.facil" e "Rentab.invest Facilcred*").
+  // Mantém um único rendimento por dia e valor.
+  const ehRendInvest = t => t.tipo === 'receita' && /^rent(ab)?\.?\s*inv/.test(_semAcentoImp(t.descricao));
+  const vistosRend = new Set();
+  const unicas = transacoes.filter(t => {
+    if (!ehRendInvest(t)) return true;
+    const chave = t.data + '|' + t.valor.toFixed(2);
+    if (vistosRend.has(chave)) return false;   // repetido: fica o da primeira seção
+    vistosRend.add(chave);
+    return true;
+  });
+  transacoes.length = 0;
+  transacoes.push(...unicas);
+
   // Saldo informado pelo banco
   const saldoBloco = (texto.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i) || [])[1] || '';
   const saldo = parseFloat((tag(saldoBloco, 'BALAMT') || '').replace(',', '.'));
