@@ -1551,9 +1551,18 @@ function aplicarPadraoFavorecido() {
   const favId = document.getElementById('lanc-favorecido')?.value;
   const fav = favorecidos.find(f => f.id === favId);
   const cat = fav?.categoria_padrao_id ? categorias.find(c => c.id === fav.categoria_padrao_id) : null;
-  if (!cat) return;
-  if (cat.tipo !== getTipoLancamento()) return;           // padrão de receita não vale para despesa e vice-versa
   const selCat = document.getElementById('lanc-categoria');
+  const dica = document.getElementById('lanc-dica-padrao');
+  // Novo favorecido sem padrão aplicável: desfaz o que foi preenchido automaticamente pelo anterior
+  if (!cat || cat.tipo !== getTipoLancamento()) {
+    if (_catPreenchidaPeloFavorecido) {
+      selCat.value = '';
+      atualizarSubcategorias();
+      _catPreenchidaPeloFavorecido = false;
+    }
+    dica?.classList.add('hidden');
+    return;
+  }
   // Só preenche se a categoria estiver vazia ou tiver vindo de um preenchimento automático anterior
   if (selCat.value && !_catPreenchidaPeloFavorecido) return;
   const paiId = cat.parent_id || cat.id;
@@ -1562,7 +1571,6 @@ function aplicarPadraoFavorecido() {
   atualizarSubcategorias();
   if (cat.parent_id) document.getElementById('lanc-subcategoria').value = cat.id;
   _catPreenchidaPeloFavorecido = true;
-  const dica = document.getElementById('lanc-dica-padrao');
   if (dica) { dica.textContent = `Categoria preenchida pelo padrão de "${fav.nome}" — altere se precisar.`; dica.classList.remove('hidden'); }
 }
 
@@ -2221,6 +2229,7 @@ function atualizarSubcategorias() {
   const subSel = document.getElementById('lanc-subcategoria');
   if (!catId) {
     subGroup.classList.add('hidden');
+    subSel.innerHTML = '<option value="">Selecione...</option>';   // não guarda subcategoria escondida
     return;
   }
   const subs = categorias.filter(c => c.parent_id === catId);
