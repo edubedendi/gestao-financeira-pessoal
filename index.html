@@ -424,6 +424,7 @@
               <span class="fav-combo-caret">▾</span>
             </div>
             <input type="hidden" id="lanc-favorecido" />
+            <div id="lanc-dica-padrao" class="hidden" style="font-size:11px;color:#4f46e5;margin-top:4px;"></div>
             <div id="lanc-favorecido-lista" class="fav-combo-lista hidden">
               <input type="text" id="lanc-favorecido-busca" class="fav-combo-busca" autocomplete="off" placeholder="🔍 Pesquisar favorecido..." oninput="filtrarFavCombo('lanc-favorecido')" />
               <div id="lanc-favorecido-itens" class="fav-combo-itens"></div>
@@ -476,7 +477,7 @@
       <div id="lanc-categoria-group">
         <label>Categoria <span style="color:#dc2626;">*</span></label>
         <div style="display:flex;gap:8px;">
-          <select id="lanc-categoria" onchange="atualizarSubcategorias()" style="flex:1;">
+          <select id="lanc-categoria" onchange="_catPreenchidaPeloFavorecido=false;document.getElementById('lanc-dica-padrao')?.classList.add('hidden');atualizarSubcategorias()" style="flex:1;">
             <option value="">Selecione...</option>
           </select>
           <button type="button" onclick="abrirModalCategoriaRapido()" style="padding:8px 12px;background:#ede9fe;color:#6d28d9;border:none;border-radius:8px;font-size:18px;cursor:pointer;" title="Nova categoria">+</button>
@@ -1536,7 +1537,42 @@ function popularSelectFavorecidos(selectId, valorAtual = '') {
 }
 
 /* ===== Campo de busca de favorecidos (combobox com campo de pesquisa dedicado) ===== */
-const FAV_COMBO_CB = { 'filtro-favorecido': 'renderizarLancamentos()' };
+const FAV_COMBO_CB = { 'filtro-favorecido': 'renderizarLancamentos()', 'lanc-favorecido': 'aplicarPadraoFavorecido()' };
+
+// ============================================================
+// CATEGORIA PADRÃO DO FAVORECIDO
+// Ao escolher o favorecido num lançamento novo, preenche categoria e subcategoria
+// com o último padrão usado. O padrão é atualizado a cada lançamento salvo.
+// ============================================================
+let _catPreenchidaPeloFavorecido = false;
+
+function aplicarPadraoFavorecido() {
+  if (lancamentoEditandoId) return;                       // edição: não mexe no que já existe
+  const favId = document.getElementById('lanc-favorecido')?.value;
+  const fav = favorecidos.find(f => f.id === favId);
+  const cat = fav?.categoria_padrao_id ? categorias.find(c => c.id === fav.categoria_padrao_id) : null;
+  if (!cat) return;
+  if (cat.tipo !== getTipoLancamento()) return;           // padrão de receita não vale para despesa e vice-versa
+  const selCat = document.getElementById('lanc-categoria');
+  // Só preenche se a categoria estiver vazia ou tiver vindo de um preenchimento automático anterior
+  if (selCat.value && !_catPreenchidaPeloFavorecido) return;
+  const paiId = cat.parent_id || cat.id;
+  if (!Array.from(selCat.options).some(o => o.value === paiId)) return;
+  selCat.value = paiId;
+  atualizarSubcategorias();
+  if (cat.parent_id) document.getElementById('lanc-subcategoria').value = cat.id;
+  _catPreenchidaPeloFavorecido = true;
+  const dica = document.getElementById('lanc-dica-padrao');
+  if (dica) { dica.textContent = `Categoria preenchida pelo padrão de "${fav.nome}" — altere se precisar.`; dica.classList.remove('hidden'); }
+}
+
+// Grava a categoria usada como padrão do favorecido (sem bloquear o salvamento)
+function memorizarPadraoFavorecido(favId, catId) {
+  const fav = favorecidos.find(f => f.id === favId);
+  if (!fav || !catId || fav.categoria_padrao_id === catId || !('categoria_padrao_id' in fav)) return;
+  fav.categoria_padrao_id = catId;
+  sb.from('favorecidos').update({ categoria_padrao_id: catId }).eq('id', favId).then(() => {}, () => {});
+}
 
 function renderFavComboLista(id, termo = '') {
   const itens = document.getElementById(id + '-itens');
@@ -2811,6 +2847,8 @@ function limparFiltros() {
 
 function abrirModalLancamento() {
   lancamentoEditandoId = null;
+  _catPreenchidaPeloFavorecido = false;
+  document.getElementById('lanc-dica-padrao')?.classList.add('hidden');
   parcelaGrupoEditando = null;
   recorrenciaIdEditando = null;
   const _chkRec = document.getElementById('lanc-recorrente');
@@ -3346,6 +3384,7 @@ async function salvarLancamento() {
   if (!valor) { toast('Informe o valor', 'erro'); return; }
   if (!data) { toast('Informe a data', 'erro'); return; }
   if (!catIdPrincipal) { toast('Selecione a categoria', 'erro'); return; }
+  if (tipo !== 'transferencia') memorizarPadraoFavorecido(favId, catId);
   if (subGroupVisivel && !document.getElementById('lanc-subcategoria').value) { toast('Selecione a subcategoria', 'erro'); return; }
   if (!forma) { toast('Selecione a forma de pagamento', 'erro'); return; }
   if (forma === 'cartao' && !cartaoId) { toast('Selecione o cartão', 'erro'); return; }
