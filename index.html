@@ -688,7 +688,7 @@
       <h3 style="margin:0;font-size:18px;font-weight:700;">Importar Extrato</h3>
       <button onclick="fecharModal('modal-importar')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button>
     </div>
-    <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Escolha o arquivo <b>OFX</b> do banco (recomendado) ou cole o texto do extrato abaixo.</p>
+    <p style="font-size:14px;color:#64748b;margin-bottom:16px;">Escolha a conta e o arquivo <b>OFX</b> baixado do banco. A análise começa sozinha.</p>
     <div style="margin-bottom:16px;">
       <label>Conta</label>
       <select id="import-conta">
@@ -696,15 +696,15 @@
       </select>
     </div>
     <div style="margin-bottom:16px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <label style="margin:0;">Texto do Extrato</label>
-        <label class="btn-secondary btn-sm" style="cursor:pointer;margin:0;">📂 Escolher arquivo OFX
-          <input type="file" id="extrato-arquivo" accept=".ofx,.OFX,.ofc,.txt" style="display:none;" onchange="carregarArquivoExtrato(this)" />
-        </label>
-      </div>
+      <label class="btn-primary" style="display:block;text-align:center;cursor:pointer;margin:0 0 12px;">📂 Escolher arquivo OFX
+        <input type="file" id="extrato-arquivo" accept=".ofx,.OFX,.ofc,.txt" style="display:none;" onchange="carregarArquivoExtrato(this)" />
+      </label>
+      <details id="extrato-colar">
+        <summary style="font-size:13px;color:#4f46e5;cursor:pointer;margin-bottom:8px;">ou colar o texto do extrato</summary>
       <textarea id="extrato-texto" rows="8" placeholder="Cole aqui o conteúdo do extrato...&#10;&#10;Exemplo:&#10;15/05 SUPERMERCADO EXTRA -250,00&#10;16/05 PIX RECEBIDO +1500,00&#10;17/05 IFOOD -45,80"></textarea>
+        <button class="btn-secondary" style="width:100%;margin-top:8px;" onclick="processarExtrato()">🔍 Analisar texto colado</button>
+      </details>
     </div>
-    <button class="btn-primary" onclick="processarExtrato()">🔍 Analisar Extrato</button>
     <div id="extrato-resultado" class="hidden" style="margin-top:20px;"></div>
   </div>
 </div>
