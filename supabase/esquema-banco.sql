@@ -1,5 +1,5 @@
 -- Estrutura do banco do app de finanças (Supabase)
--- Gerado em 11/10/2026, 15:42:06 a partir do banco real. Sem dados, sem chaves.
+-- Gerado em 01/11/2026, 22:11:18 a partir do banco real. Sem dados, sem chaves.
 -- Antes de rodar: troque COLE_AQUI_A_ANON_KEY pela anon key do projeto.
 
 -- ==== TABELAS ====
@@ -49,6 +49,7 @@ create table if not exists public.categorias (
   holerite_tipo text,
   conta_padrao_id uuid,
   fora_do_controle boolean not null default false,
+  fundo text,
   constraint categorias_pkey PRIMARY KEY (id),
   constraint categorias_holerite_tipo_check CHECK ((holerite_tipo = ANY (ARRAY['provento'::text, 'desconto'::text, 'desconto_fiscal'::text]))),
   constraint categorias_tipo_check CHECK ((tipo = ANY (ARRAY['receita'::text, 'despesa'::text])))
@@ -89,6 +90,7 @@ create table if not exists public.favorecidos (
   nome text not null,
   icone text default '🏢'::text,
   created_at timestamp with time zone default now(),
+  categoria_padrao_id uuid,
   constraint favorecidos_pkey PRIMARY KEY (id)
 );
 alter table public.favorecidos enable row level security;
@@ -208,6 +210,7 @@ create table if not exists public.recorrencias (
   ativa boolean default true,
   created_at timestamp with time zone default now(),
   conta_id uuid,
+  meses smallint[],
   constraint recorrencias_pkey PRIMARY KEY (id),
   constraint recorrencias_dia_do_mes_check CHECK (((dia_do_mes >= 1) AND (dia_do_mes <= 28))),
   constraint recorrencias_tipo_check CHECK ((tipo = ANY (ARRAY['receita'::text, 'despesa'::text])))
@@ -240,6 +243,7 @@ alter table public.categorias add constraint categorias_parent_id_fkey FOREIGN K
 alter table public.categorias add constraint categorias_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.config_poupanca_mensal add constraint config_poupanca_mensal_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.contas add constraint contas_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+alter table public.favorecidos add constraint favorecidos_categoria_padrao_id_fkey FOREIGN KEY (categoria_padrao_id) REFERENCES categorias(id) ON DELETE SET NULL;
 alter table public.favorecidos add constraint favorecidos_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.grupos add constraint grupos_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 alter table public.holerite_itens add constraint holerite_itens_holerite_id_fkey FOREIGN KEY (holerite_id) REFERENCES holerites(id) ON DELETE CASCADE;
@@ -341,8 +345,6 @@ declare
   v_fim date := (make_date(v_ano, v_mes, 1) + interval '1 month' - interval '1 day')::date;
   v_qtd int;
 begin
-  -- Mesma regra do app: dia limitado a 28, descrição = favorecido (ou categoria),
-  -- e só cria se ainda não houver lançamento desta recorrência no mês
   insert into lancamentos (user_id, descricao, valor, data, tipo, categoria_id, favorecido_id,
                            cartao_id, conta_id, forma_pagamento, recorrencia_id)
   select r.user_id,
@@ -354,6 +356,7 @@ begin
     left join favorecidos f on f.id = r.favorecido_id
     left join categorias  c on c.id = r.categoria_id
    where r.ativa
+     and (r.meses is null or cardinality(r.meses) = 0 or v_mes = any(r.meses))
      and not exists (select 1 from lancamentos l
                       where l.recorrencia_id = r.id and l.data between v_ini and v_fim);
   get diagnostics v_qtd = row_count;
