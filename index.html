@@ -1361,6 +1361,20 @@ function toast(msg, tipo='info') {
 function fecharModal(id) { document.getElementById(id).classList.add('hidden'); }
 function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
 
+// ESC fecha a janela de cima. Se houver uma lista de favorecidos aberta, fecha só ela primeiro.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.isComposing) return;
+  const combo = document.querySelector('.fav-combo-lista:not(.hidden)');
+  if (combo) { combo.classList.add('hidden'); e.preventDefault(); return; }
+  const abertas = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden)'));
+  if (!abertas.length) return;
+  // A de cima: maior z-index; empate → a que vem por último na página
+  const topo = abertas.reduce((a, b) => (parseInt(getComputedStyle(b).zIndex) || 0) >= (parseInt(getComputedStyle(a).zIndex) || 0) ? b : a);
+  e.preventDefault();
+  if (document.activeElement && topo.contains(document.activeElement)) document.activeElement.blur();
+  fecharModal(topo.id);
+});
+
 function progressCor(pct) {
   if (pct > 100) return '#dc2626';
   if (pct >= 80) return '#f59e0b';
@@ -1853,10 +1867,24 @@ async function carregarRegras() {
 }
 
 // Retorna a regra que melhor casa com a descrição, ou null
+// Normaliza para comparar: sem acento, minúsculo, pontuação vira espaço ("Rent.inv.facil" → "rent inv facil")
+function _normRegra(t) {
+  return (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+const _RUIDO_REGRA = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+// A regra casa quando todas as palavras do padrão aparecem na descrição, em qualquer ordem.
+// "rent facil" casa com "Rent.inv.facil"; "uber trip" com "Uber *trip Help.uber"; "paula azevedo" com "Ana Paula de Azevedo".
+function regraCasa(padrao, descricao) {
+  const palavrasD = new Set(_normRegra(descricao).split(' ').filter(Boolean));
+  const palavrasP = _normRegra(padrao).split(' ').filter(w => w && !_RUIDO_REGRA.has(w));
+  if (!palavrasP.length) return false;
+  return palavrasP.every(w => palavrasD.has(w) || [...palavrasD].some(x => x.length > w.length && x.startsWith(w)));
+}
+
 function regraPara(descricao) {
-  const d = (descricao || '').toLowerCase();
-  if (!d) return null;
-  const candidatas = regras.filter(r => r.padrao && d.includes(String(r.padrao).toLowerCase()));
+  if (!descricao) return null;
+  const candidatas = regras.filter(r => r.padrao && regraCasa(r.padrao, descricao));
   if (!candidatas.length) return null;
   // Menor prioridade vence; em caso de empate, o padrão mais específico (mais longo)
   candidatas.sort((a, b) => (a.prioridade - b.prioridade) || (String(b.padrao).length - String(a.padrao).length));
@@ -1917,15 +1945,19 @@ async function criarRegraDoImport(i) {
   if (!catId) { toast('Escolha a categoria antes de criar a regra', 'erro'); return; }
   const padrao = (prompt('Aplicar esta categoria quando a descrição contiver:', sugerirPadrao(desc)) || '').trim().toLowerCase();
   if (!padrao) return;
-  const uid = (await sb.auth.getUser()).data.user.id;
-  const { error } = await sb.from('regras_categorizacao').insert({
-    user_id: uid,
+  if (!regraCasa(padrao, desc) && !confirm(`O padrão "${padrao}" não casa com "${desc}" e não seria aplicado a este lançamento. Criar mesmo assim?`)) return;
+  const dados = {
     padrao,
     categoria_id: catId,
     favorecido_id: document.getElementById(`tr-fav-${i}`)?.value || null,
-    forma_pagamento: document.getElementById(`tr-forma-${i}`)?.value || null,
-    prioridade: 100
-  });
+    forma_pagamento: document.getElementById(`tr-forma-${i}`)?.value || null
+  };
+  // Mesmo padrão já cadastrado: atualiza em vez de duplicar
+  const existente = regras.find(r => _normRegra(r.padrao) === _normRegra(padrao));
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { error } = existente
+    ? await sb.from('regras_categorizacao').update(dados).eq('id', existente.id)
+    : await sb.from('regras_categorizacao').insert({ user_id: uid, prioridade: 100, ...dados });
   if (error) { toast('Erro ao criar regra', 'erro'); return; }
   await carregarRegras();
   toast('Regra criada!', 'ok');
