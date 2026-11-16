@@ -153,9 +153,16 @@
     <div class="lanc-topo" id="lanc-topo">
       <h2 style="font-size:18px;font-weight:700;margin:0;">Lançamentos</h2>
       <div style="display:flex;gap:8px;">
+        <button class="btn-secondary btn-sm" onclick="alternarSelecaoLanc()" id="btn-selecionar">☑ Selecionar</button>
         <button class="btn-secondary btn-sm" onclick="toggleFiltros()" id="btn-filtros">🔍 Filtros</button>
         <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="abrirModalLancamento()">+ Novo</button>
       </div>
+    </div>
+    <div id="barra-selecao" class="hidden" style="position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:45;width:calc(100% - 32px);max-width:560px;background:#1e293b;color:white;border-radius:14px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:140px;font-size:13px;"><b id="sel-qtd">0 selecionados</b><div id="sel-total" style="font-size:12px;color:#cbd5e1;"></div></div>
+      <button type="button" onclick="selecionarTodosLanc()" style="background:none;border:1px solid #64748b;color:white;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;" id="sel-todos">Todos</button>
+      <button type="button" onclick="excluirSelecionados()" style="background:#dc2626;border:none;color:white;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;">🗑 Excluir</button>
+      <button type="button" onclick="alternarSelecaoLanc(false)" style="background:none;border:none;color:#cbd5e1;font-size:13px;cursor:pointer;">Cancelar</button>
     </div>
     <!-- Painel de filtros -->
     <div id="painel-filtros" class="hidden card" style="padding:14px;margin-bottom:12px;">
@@ -1361,13 +1368,45 @@ function toast(msg, tipo='info') {
 function fecharModal(id) { document.getElementById(id).classList.add('hidden'); }
 function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
 
+// ============================================================
+// TRAVA CONTRA CLIQUE DUPLO
+// Enquanto uma gravação está em andamento, novos cliques são ignorados
+// e o botão fica desabilitado com "Salvando…".
+// ============================================================
+const _FUNCOES_GRAVACAO = ['salvarCategoria','salvarLancamento','salvarLancamentoRateio','salvarFavorecido','salvarGrupo',
+  'salvarCartao','salvarConta','salvarMeta','salvarAporte','salvarHolerite','salvarOrcamento','salvarPercPoupanca','salvarMesesRec',
+  'confirmarImportacao','confirmarPagamentoFatura','confirmarAdiarParcelas','confirmarCancelarRecorrencia',
+  'confirmarExcluirParcelasDaqui','confirmarRealocacao','criarRegraDoImport','aplicarMes','excluirSelecionados'];
+const _gravando = new Set();
+function _protegerCliqueDuplo(nome) {
+  const original = window[nome];
+  if (typeof original !== 'function' || original._protegida) return;
+  const protegida = async function (...args) {
+    if (_gravando.has(nome)) return;
+    _gravando.add(nome);
+    const botao = (window.event && window.event.currentTarget instanceof HTMLElement && window.event.currentTarget.tagName === 'BUTTON')
+      ? window.event.currentTarget : null;
+    const textoOriginal = botao ? botao.innerHTML : null;
+    if (botao) { botao.disabled = true; botao.style.opacity = '0.6'; botao.innerHTML = 'Salvando…'; }
+    try { return await original.apply(this, args); }
+    finally {
+      _gravando.delete(nome);
+      if (botao) { botao.disabled = false; botao.style.opacity = ''; botao.innerHTML = textoOriginal; }
+    }
+  };
+  protegida._protegida = true;
+  window[nome] = protegida;
+}
+window.addEventListener('DOMContentLoaded', () => _FUNCOES_GRAVACAO.forEach(_protegerCliqueDuplo));
+_FUNCOES_GRAVACAO.forEach(n => { try { _protegerCliqueDuplo(n); } catch (e) {} });
+
 // ESC fecha a janela de cima. Se houver uma lista de favorecidos aberta, fecha só ela primeiro.
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || e.isComposing) return;
   const combo = document.querySelector('.fav-combo-lista:not(.hidden)');
   if (combo) { combo.classList.add('hidden'); e.preventDefault(); return; }
   const abertas = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden)'));
-  if (!abertas.length) return;
+  if (!abertas.length) { if (_selLanc) { e.preventDefault(); alternarSelecaoLanc(false); } return; }
   // A de cima: maior z-index; empate → a que vem por último na página
   const topo = abertas.reduce((a, b) => (parseInt(getComputedStyle(b).zIndex) || 0) >= (parseInt(getComputedStyle(a).zIndex) || 0) ? b : a);
   e.preventDefault();
@@ -1479,6 +1518,7 @@ function atualizarHeaderMes() {
 // NAVEGAÇÃO
 // ============================================================
 function navegarPara(pagina) {
+  if (typeof _selLanc !== 'undefined' && _selLanc && pagina !== 'lancamentos') alternarSelecaoLanc(false);
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + pagina).classList.add('active');
@@ -2611,7 +2651,7 @@ function htmlGrupoRateioLista(membros) {
   membros.forEach(m => {
     const icone = m.categorias?.icone || (tipo === 'receita' ? '💰' : '💸');
     h += `
-      <div class="item-row" onclick="editarLancamento('${m.id}')" style="cursor:pointer;padding:8px 16px 8px 40px;">
+      <div class="item-row" data-lanc-id="${m.id}" onclick="cliqueLancamento('${m.id}')" style="cursor:pointer;padding:8px 16px 8px 40px;">
         <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
           <div style="font-size:16px;">${icone}</div>
           <div style="flex:1;min-width:0;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.categorias?.nome || 'Sem categoria'}</div>
@@ -2734,6 +2774,7 @@ async function _renderizarLancamentosBase() {
   const lancamentos = busca
     ? visiveis.filter(l => l.descricao?.toLowerCase().includes(busca) || l.categorias?.nome?.toLowerCase().includes(busca) || l.favorecidos?.nome?.toLowerCase().includes(busca))
     : visiveis;
+  window._lancVisiveis = lancamentos;
 
   // Resumo
   const resumoEl = document.getElementById('lancamentos-resumo');
@@ -2792,7 +2833,7 @@ async function _renderizarLancamentosBase() {
       ? (l.observacao === '__pgtofatura__' ? 'Pagamento de fatura' : 'Transferência / Poupança')
       : `${l.categorias?.nome || 'Sem categoria'}${l.favorecidos ? ' • ' + l.favorecidos.nome : ''}${l.cartoes ? ' • ' + l.cartoes.nome : ''}${l.total_parcelas > 1 ? ' ('+l.parcela_atual+'/'+l.total_parcelas+')' : ''}${l.recorrencia_id ? ' • 🔁' : ''}`;
     html += `
-      <div class="item-row" onclick="${isTransf ? '' : `editarLancamento('${l.id}')`}" style="cursor:${isTransf ? 'default' : 'pointer'};padding:12px 16px;${isTransf ? 'background:#faf5ff;' : ''}">
+      <div class="item-row" data-lanc-id="${isTransf ? '' : l.id}" onclick="${isTransf ? '' : `cliqueLancamento('${l.id}')`}" style="cursor:${isTransf ? 'default' : 'pointer'};padding:12px 16px;${isTransf ? 'background:#faf5ff;' : ''}">
         <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
           <div style="font-size:22px;">${icone}</div>
           <div style="flex:1;min-width:0;">
@@ -2807,6 +2848,88 @@ async function _renderizarLancamentosBase() {
   });
   if (dataAnterior) html += '</div>';
   el.innerHTML = html;
+  _pintarSelecaoLanc();
+}
+
+// ============================================================
+// SELEÇÃO MÚLTIPLA E EXCLUSÃO EM LOTE
+// ============================================================
+let _selLanc = null;   // Set de ids quando o modo seleção está ligado
+
+function cliqueLancamento(id) {
+  if (!_selLanc) { editarLancamento(id); return; }
+  _selLanc.has(id) ? _selLanc.delete(id) : _selLanc.add(id);
+  _pintarSelecaoLanc();
+}
+
+function alternarSelecaoLanc(ligar) {
+  const on = typeof ligar === 'boolean' ? ligar : !_selLanc;
+  _selLanc = on ? new Set() : null;
+  const btn = document.getElementById('btn-selecionar');
+  if (btn) btn.textContent = on ? '✕ Sair da seleção' : '☑ Selecionar';
+  _pintarSelecaoLanc();
+}
+
+function _idsSelecionaveis() {
+  return (window._lancVisiveis || []).filter(l => l.tipo !== 'transferencia').map(l => l.id);
+}
+
+function selecionarTodosLanc() {
+  if (!_selLanc) return;
+  const ids = _idsSelecionaveis();
+  const todos = ids.length && ids.every(id => _selLanc.has(id));
+  _selLanc = todos ? new Set() : new Set(ids);
+  _pintarSelecaoLanc();
+}
+
+function _pintarSelecaoLanc() {
+  const barra = document.getElementById('barra-selecao');
+  document.querySelectorAll('#lancamentos-content [data-lanc-id]').forEach(row => {
+    const id = row.dataset.lancId;
+    let marca = row.querySelector('.sel-marca');
+    if (!_selLanc || !id) { if (marca) marca.remove(); row.style.background = ''; return; }
+    if (!marca) {
+      marca = document.createElement('div');
+      marca.className = 'sel-marca';
+      marca.style.cssText = 'width:20px;height:20px;border-radius:6px;border:2px solid #94a3b8;margin-right:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:white;';
+      row.insertBefore(marca, row.firstChild);
+    }
+    const on = _selLanc.has(id);
+    marca.style.background = on ? '#4f46e5' : 'white';
+    marca.style.borderColor = on ? '#4f46e5' : '#94a3b8';
+    marca.textContent = on ? '✓' : '';
+    row.style.background = on ? '#eef2ff' : '';
+  });
+  if (!barra) return;
+  barra.classList.toggle('hidden', !_selLanc);
+  if (!_selLanc) return;
+  const sel = (window._lancVisiveis || []).filter(l => _selLanc.has(l.id));
+  const desp = sel.filter(l => l.tipo === 'despesa').reduce((t, l) => t + Number(l.valor), 0);
+  const rec = sel.filter(l => l.tipo === 'receita').reduce((t, l) => t + Number(l.valor), 0);
+  document.getElementById('sel-qtd').textContent = `${_selLanc.size} selecionado${_selLanc.size === 1 ? '' : 's'}`;
+  document.getElementById('sel-total').textContent = _selLanc.size
+    ? [desp ? `↓ ${R$(desp)}` : '', rec ? `↑ ${R$(rec)}` : ''].filter(Boolean).join(' · ')
+    : 'Toque nos lançamentos para marcar';
+  const ids = _idsSelecionaveis();
+  document.getElementById('sel-todos').textContent = ids.length && ids.every(id => _selLanc.has(id)) ? 'Nenhum' : 'Todos';
+}
+
+async function excluirSelecionados() {
+  if (!_selLanc || !_selLanc.size) { toast('Nenhum lançamento selecionado', 'erro'); return; }
+  const ids = [..._selLanc];
+  const sel = (window._lancVisiveis || []).filter(l => _selLanc.has(l.id));
+  const total = sel.reduce((t, l) => t + Number(l.valor), 0);
+  const parcelas = sel.filter(l => l.total_parcelas > 1).length;
+  const recorr = sel.filter(l => l.recorrencia_id).length;
+  let msg = `Excluir ${ids.length} lançamento${ids.length === 1 ? '' : 's'} (${R$(total)})?\n\nEsta ação não pode ser desfeita.`;
+  if (parcelas) msg += `\n\n• ${parcelas} ${parcelas === 1 ? 'é parcela' : 'são parcelas'}: só as parcelas marcadas serão excluídas, não a compra inteira.`;
+  if (recorr) msg += `\n\n• ${recorr} ${recorr === 1 ? 'vem' : 'vêm'} de recorrência: a recorrência continua ativa e gera os próximos meses normalmente.`;
+  if (!confirm(msg)) return;
+  const { error } = await sb.from('lancamentos').delete().in('id', ids);
+  if (error) { toast('Erro ao excluir: ' + error.message, 'erro'); return; }
+  toast(`${ids.length} lançamento${ids.length === 1 ? '' : 's'} excluído${ids.length === 1 ? '' : 's'}`, 'ok');
+  alternarSelecaoLanc(false);
+  renderizarLancamentos({ preservarScroll: true });
 }
 
 function toggleFiltros() {
@@ -7487,6 +7610,16 @@ async function salvarCategoria() {
     newId = id;
     toast('Categoria atualizada!', 'ok');
   } else {
+    // Já existe uma categoria com o mesmo nome no mesmo lugar? Reaproveita em vez de duplicar
+    await carregarCategorias();
+    const igual = categorias.find(c => c.tipo === tipo && (c.parent_id || null) === parentId
+      && c.nome.trim().toLowerCase() === nome.toLowerCase());
+    if (igual) {
+      newId = igual.id;
+      toast(`"${nome}" já existia — usando a categoria existente`, 'ok');
+    }
+  }
+  if (!id && !newId) {
     const { data, error } = await sb.from('categorias').insert({ user_id: uid, nome, icone, tipo, parent_id: parentId, ...extra }).select().single();
     if (error) { toast('Erro ao salvar', 'erro'); return; }
     newId = data?.id;
