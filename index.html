@@ -1410,7 +1410,8 @@ function abrirModal(id) { document.getElementById(id).classList.remove('hidden')
 const _FUNCOES_GRAVACAO = ['salvarCategoria','salvarLancamento','salvarLancamentoRateio','salvarFavorecido','salvarGrupo',
   'salvarCartao','salvarConta','salvarMeta','salvarAporte','salvarHolerite','salvarOrcamento','salvarPercPoupanca','salvarMesesRec',
   'confirmarImportacao','confirmarPagamentoFatura','confirmarAdiarParcelas','confirmarCancelarRecorrencia',
-  'confirmarExcluirParcelasDaqui','confirmarRealocacao','criarRegraDoImport','aplicarMes','excluirSelecionados'];
+  'confirmarExcluirParcelasDaqui','confirmarRealocacao','criarRegraDoImport','aplicarMes','excluirSelecionados',
+  'cfConfirmarManter','cfIgnorarSugestao'];
 const _gravando = new Set();
 function _protegerCliqueDuplo(nome) {
   const original = window[nome];
@@ -1808,6 +1809,7 @@ async function renderizarContasFuturas() {
       ${d.soPassado ? '' : `<div style="margin-top:6px;font-size:12px;color:#64748b;">Menor saldo previsto: <b style="color:${cor(d.menor.saldo)};">${R$(d.menor.saldo)}</b> em ${_cfBR(d.menor.data)}${d.colchao > 0 ? ` · colchão ${R$(d.colchao)}` : ''}</div>`}
       ${alerta}
     </div>
+    <div id="cf-sugestoes"></div>
     <div class="card" style="padding:12px 12px 6px;margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 4px 6px;">
         <span style="font-size:13px;font-weight:700;color:#374151;">📉 Saldo dia a dia</span>
@@ -1819,6 +1821,7 @@ async function renderizarContasFuturas() {
     <div id="cf-lista">${_cfHtmlLista(d)}</div>
     <p style="font-size:11px;color:#94a3b8;margin:8px 4px 0;">Até hoje: lançamentos reais da conta. Depois de hoje: agendados, recorrências e faturas dos cartões pagos por esta conta. Gastos do dia a dia sem data (o que ainda resta do orçamento) ainda não entram na previsão.</p>`;
   _cfLigarGrafico();
+  if (!d.soPassado) _cfRenderSugestoes();
 }
 
 // ---------- Gráfico (SVG) ----------
@@ -2046,6 +2049,217 @@ function _cfHtmlLista(d) {
   }).join('');
 }
 
+
+// ============================================================
+// CONTAS QUE SE REPETEM — detecção pelo histórico (onda 2)
+// Analisa os 4 meses completos anteriores. Agrupa por favorecido (ou descrição)
+// e sugere como recorrência o que aparece quase todo mês, com valor parecido,
+// e ainda não está cadastrado. O usuário escolhe Manter (vira recorrência) ou Ignorar.
+// ============================================================
+let _cfSugestoes = [];
+let _cfIgnoradas = null;   // Set de chaves
+
+function _cfNormDesc(t) {
+  return (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[0-9]+/g, ' ').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .split(' ').filter(w => w.length > 1).slice(0, 3).join(' ');
+}
+function _cfMediana(arr) { const a = [...arr].sort((x, y) => x - y); const k = Math.floor(a.length / 2); return a.length % 2 ? a[k] : (a[k - 1] + a[k]) / 2; }
+function _cfModa(arr) { const c = {}; arr.forEach(v => c[v] = (c[v] || 0) + 1); return Object.entries(c).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0]; }
+
+async function _cfCarregarIgnoradas() {
+  if (_cfIgnoradas) return _cfIgnoradas;
+  _cfIgnoradas = new Set();
+  const { data, error } = await sb.from('recorrencias_ignoradas').select('chave');
+  if (!error) (data || []).forEach(r => _cfIgnoradas.add(r.chave));
+  try { JSON.parse(localStorage.getItem('cf_ignoradas') || '[]').forEach(k => _cfIgnoradas.add(k)); } catch (e) {}
+  return _cfIgnoradas;
+}
+
+async function detectarContasRepetidas() {
+  const h = new Date();
+  const y = h.getFullYear(), m = h.getMonth() + 1;
+  const mesesAnalise = [];                                    // 4 meses completos anteriores
+  for (let k = 4; k >= 1; k--) { const t = new Date(y, m - 1 - k, 1); mesesAnalise.push(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`); }
+  const mesAtualYM = `${y}-${String(m).padStart(2, '0')}`;
+  const ini = mesesAnalise[0] + '-01';
+  const fim = _cfFimMes(y, m);
+  const [lancs, ignoradas] = await Promise.all([
+    _cfTodos(() => sb.from('lancamentos')
+      .select('id,data,descricao,valor,tipo,categoria_id,favorecido_id,conta_id,cartao_id,forma_pagamento,observacao,recorrencia_id,total_parcelas,rateio_grupo_id,favorecidos(nome)')
+      .gte('data', ini).lte('data', fim).order('id')),
+    _cfCarregarIgnoradas()
+  ]);
+  if (!recorrencias || !recorrencias.length) await carregarRecorrencias();
+  const holIds = typeof idsCategoriasHolerite === 'function' ? idsCategoriasHolerite() : new Set();
+
+  mesesAnalise.push(mesAtualYM);                              // o mês atual conta quando a conta já apareceu nele
+  const validos = lancs.filter(l => l.tipo !== 'transferencia' && !l.recorrencia_id && !(l.total_parcelas > 1) &&
+    !l.rateio_grupo_id && l.observacao !== '__hol__' && l.observacao !== '__pgtofatura__' && !holIds.has(l.categoria_id));
+  // Meses completos com algum lançamento (o histórico pode ser curto)
+  const mesesComDados = mesesAnalise.filter(ym => ym !== mesAtualYM && lancs.some(l => l.data.slice(0, 7) === ym)).length;
+  if (mesesComDados < 1) return [];
+  const minMeses = Math.max(2, mesesComDados - 1);
+
+  // Agrupa
+  const grupos = {};
+  for (const l of validos) {
+    const chave = l.tipo + '|' + (l.favorecido_id ? 'f:' + l.favorecido_id : 'd:' + _cfNormDesc(l.descricao));
+    if (chave.endsWith('d:')) continue;
+    (grupos[chave] = grupos[chave] || []).push(l);
+  }
+
+  const sugestoes = [];
+  for (const [chave, ls] of Object.entries(grupos)) {
+    const porMes = {};
+    ls.forEach(l => (porMes[l.data.slice(0, 7)] = porMes[l.data.slice(0, 7)] || []).push(l));
+    const presentes = mesesAnalise.filter(ym => porMes[ym]);
+    if (presentes.length < minMeses) continue;
+    const qtd = Number(_cfModa(presentes.map(ym => porMes[ym].length)));
+    if (!qtd || qtd > 6) continue;                              // compras frequentes (Uber, padaria) ficam de fora
+    const mesesComQtd = presentes.filter(ym => porMes[ym].length >= qtd);
+    if (mesesComQtd.length < minMeses) continue;
+    // Várias por mês só contam se vencem juntas (ex.: linhas de telefone), não espalhadas pelo mês
+    if (qtd > 1) {
+      const espalhamento = _cfMediana(mesesComQtd.map(ym => { const ds = porMes[ym].map(l => Number(l.data.slice(8))); return Math.max(...ds) - Math.min(...ds); }));
+      if (espalhamento > 7) continue;
+    }
+
+    const amostra = ls[ls.length - 1];
+    const favId = amostra.favorecido_id || null;
+    const nomeLimpo = _cfNormDesc(amostra.descricao).replace(/\b\w/g, c => c.toUpperCase());
+    const nomeBase = amostra.favorecidos?.nome || nomeLimpo || amostra.descricao || 'Conta';
+    const categoria = _cfModa(ls.map(l => l.categoria_id || '')) || null;
+    const contaId = _cfModa(ls.map(l => l.conta_id || '')) || null;
+    const cartaoId = _cfModa(ls.map(l => l.cartao_id || '')) || null;
+    const forma = _cfModa(ls.map(l => l.forma_pagamento || '')) || null;
+
+    // Recorrências já cadastradas para o mesmo favorecido/nome
+    const nomeNorm = _cfNormDesc(nomeBase);
+    const jaCadastradas = (recorrencias || []).filter(r => r.ativa !== false && r.tipo === amostra.tipo &&
+      ((favId && r.favorecido_id === favId) || (!favId && _cfNormDesc(r.favorecidos?.nome) === nomeNorm)));
+
+    for (let s = 0; s < qtd; s++) {
+      // s-ésimo maior valor de cada mês = uma "conta" (ex.: 3 linhas da Vivo)
+      const ocorr = mesesComQtd.map(ym => [...porMes[ym]].sort((a, b) => b.valor - a.valor)[s]).filter(Boolean);
+      const valores = ocorr.map(l => Number(l.valor));
+      const med = _cfMediana(valores);
+      if (med <= 0) continue;
+      const variacao = (Math.max(...valores) - Math.min(...valores)) / med;
+      if (variacao > 0.6) continue;                            // valor muito irregular: não é conta fixa
+      // Já coberta por recorrência com valor parecido?
+      const cobre = jaCadastradas.findIndex(r => Math.abs(Number(r.valor) - med) / med <= 0.5);
+      if (cobre >= 0) { jaCadastradas.splice(cobre, 1); continue; }
+      const chaveSlot = `${chave}|${s}`;
+      if (ignoradas.has(chaveSlot)) continue;
+      const doMesAtual = (porMes[mesAtualYM] || []).sort((a, b) => b.valor - a.valor)[s] || null;
+      const media = valores.reduce((t, v) => t + v, 0) / valores.length;
+      sugestoes.push({
+        chave: chaveSlot, tipo: amostra.tipo, favId, nome: nomeBase + (qtd > 1 ? ` (${s + 1}/${qtd})` : ''), nomeBase,
+        precisaNome: !favId, categoria_id: categoria, conta_id: cartaoId ? null : (contaId || idContaPrincipal()), cartao_id: cartaoId,
+        forma_pagamento: forma, valor: Math.round(media * 100) / 100, variacao,
+        dia: Math.min(28, Math.round(_cfMediana(ocorr.map(l => Number(l.data.slice(8)))))),
+        meses: ocorr.map(l => l.data.slice(0, 7)), idMesAtual: doMesAtual?.id || null
+      });
+    }
+  }
+  return sugestoes.sort((a, b) => b.valor - a.valor);
+}
+
+async function _cfRenderSugestoes() {
+  const box = document.getElementById('cf-sugestoes');
+  if (!box) return;
+  let lista;
+  try { lista = await detectarContasRepetidas(); } catch (e) { box.innerHTML = ''; return; }
+  _cfSugestoes = lista;
+  if (!lista.length) { box.innerHTML = ''; return; }
+  const nomeCat = id => { const c = categorias.find(x => x.id === id); if (!c) return ''; const p = c.parent_id ? categorias.find(x => x.id === c.parent_id) : null; return (p ? p.nome + ' › ' : '') + c.nome; };
+  const origem = s => s.cartao_id ? (cartoes.find(c => c.id === s.cartao_id)?.nome || 'cartão') : (contas.find(c => c.id === s.conta_id)?.nome || '');
+  box.innerHTML = `
+    <div class="card" style="padding:14px 14px 6px;margin-bottom:12px;border-left:4px solid #f59e0b;">
+      <div style="font-size:13px;font-weight:700;color:#92400e;margin-bottom:2px;">💡 Contas que se repetem e não estão cadastradas</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px;">Encontradas nos últimos meses. <b>Manter</b> transforma em recorrência: passa a entrar sozinha na previsão e no orçamento.</div>
+      ${lista.map((s, i) => `
+      <div style="border-top:1px solid #f1f5f9;padding:10px 0;" id="cf-sug-${i}">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(s.nome)}</div>
+            <div style="font-size:11px;color:#94a3b8;">${s.tipo === 'receita' ? 'entrada' : 'saída'} • todo dia ${s.dia}${origem(s) ? ' • ' + _cfEsc(origem(s)) : ''}${nomeCat(s.categoria_id) ? ' • ' + _cfEsc(nomeCat(s.categoria_id)) : ''}</div>
+            <div style="font-size:11px;color:#94a3b8;">apareceu em ${s.meses.map(ym => _MESES_ABREV[Number(ym.slice(5)) - 1]).join(', ')}${s.variacao > 0.05 ? ' • valor varia' : ''}</div>
+          </div>
+          <div style="font-weight:700;font-size:14px;color:${s.tipo === 'receita' ? '#059669' : '#dc2626'};white-space:nowrap;">${s.variacao > 0.05 ? '~ ' : ''}${R$(s.valor)}</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;" id="cf-sug-bt-${i}">
+          <button type="button" class="btn-primary" style="width:auto;padding:6px 14px;font-size:13px;" onclick="cfAbrirManter(${i})">Manter</button>
+          <button type="button" class="btn-secondary btn-sm" onclick="cfIgnorarSugestao(${i})">Ignorar</button>
+        </div>
+        <div class="hidden" id="cf-sug-form-${i}" style="margin-top:8px;background:#f8fafc;border-radius:10px;padding:10px;">
+          ${s.precisaNome ? `<label style="font-size:11px;">Nome</label><input type="text" id="cf-sug-nome-${i}" value="${_cfEsc(s.nomeBase)}" style="margin-bottom:6px;padding:6px 8px;">` : ''}
+          <div style="display:flex;gap:8px;">
+            <div style="flex:1;"><label style="font-size:11px;">Valor (R$)</label><input type="number" step="0.01" id="cf-sug-valor-${i}" value="${s.valor.toFixed(2)}" style="padding:6px 8px;"></div>
+            <div style="width:90px;"><label style="font-size:11px;">Dia</label><input type="number" min="1" max="28" id="cf-sug-dia-${i}" value="${s.dia}" style="padding:6px 8px;"></div>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin:6px 0;">${s.idMesAtual ? 'A deste mês já foi lançada e será ligada à recorrência.' : `Ainda não há uma deste mês: ela será gerada para o dia ${s.dia}.`}</div>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn-primary" style="width:auto;padding:6px 14px;font-size:13px;" onclick="cfConfirmarManter(${i})">Criar recorrência</button>
+            <button type="button" class="btn-secondary btn-sm" onclick="cfAbrirManter(${i}, false)">Voltar</button>
+          </div>
+        </div>
+      </div>`).join('')}
+    </div>`;
+}
+
+function cfAbrirManter(i, abrir = true) {
+  document.getElementById('cf-sug-form-' + i)?.classList.toggle('hidden', !abrir);
+  document.getElementById('cf-sug-bt-' + i)?.classList.toggle('hidden', abrir);
+}
+
+async function cfConfirmarManter(i) {
+  const s = _cfSugestoes[i];
+  if (!s) return;
+  const valor = Number(String(document.getElementById('cf-sug-valor-' + i).value).replace(',', '.'));
+  const dia = Math.min(28, Math.max(1, Math.round(Number(document.getElementById('cf-sug-dia-' + i).value) || s.dia)));
+  if (!(valor > 0)) { toast('Informe um valor maior que zero', 'erro'); return; }
+  const uid = (await sb.auth.getUser()).data.user.id;
+  let favId = s.favId;
+  if (!favId) {
+    const nome = (document.getElementById('cf-sug-nome-' + i)?.value || s.nomeBase).trim();
+    const existente = favorecidos.find(f => f.nome.trim().toLowerCase() === nome.toLowerCase());
+    if (existente) favId = existente.id;
+    else {
+      const { data: novoFav, error: eF } = await sb.from('favorecidos').insert({ user_id: uid, nome }).select().single();
+      if (eF) { toast('Erro ao criar o favorecido: ' + eF.message, 'erro'); return; }
+      favId = novoFav.id;
+      favorecidos.push(novoFav);
+    }
+  }
+  const { data: rec, error } = await sb.from('recorrencias').insert({
+    user_id: uid, tipo: s.tipo, valor, dia_do_mes: dia, categoria_id: s.categoria_id || null, favorecido_id: favId,
+    conta_id: s.cartao_id ? null : s.conta_id, cartao_id: s.cartao_id || null, forma_pagamento: s.forma_pagamento || null, ativa: true
+  }).select().single();
+  if (error) { toast('Erro ao criar a recorrência: ' + error.message, 'erro'); return; }
+  // A deste mês já lançada passa a pertencer à recorrência (evita gerar outra igual)
+  if (s.idMesAtual) await sb.from('lancamentos').update({ recorrencia_id: rec.id }).eq('id', s.idMesAtual);
+  await carregarRecorrencias();
+  toast(`"${s.nome}" virou recorrência`, 'ok');
+  renderizarContasFuturas();
+}
+
+async function cfIgnorarSugestao(i) {
+  const s = _cfSugestoes[i];
+  if (!s) return;
+  await _cfCarregarIgnoradas();
+  _cfIgnoradas.add(s.chave);
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { error } = await sb.from('recorrencias_ignoradas').insert({ user_id: uid, chave: s.chave, nome: s.nome });
+  if (error) {   // sem a tabela no banco: guarda neste aparelho
+    try { const l = JSON.parse(localStorage.getItem('cf_ignoradas') || '[]'); l.push(s.chave); localStorage.setItem('cf_ignoradas', JSON.stringify(l)); } catch (e) {}
+  }
+  document.getElementById('cf-sug-' + i)?.remove();
+  _cfSugestoes[i] = null;
+  if (!_cfSugestoes.some(Boolean)) document.getElementById('cf-sugestoes').innerHTML = '';
+  toast('Sugestão ignorada', 'ok');
+}
 
 function navegarPara(pagina) {
   if (typeof _selLanc !== 'undefined' && _selLanc && pagina !== 'lancamentos') alternarSelecaoLanc(false);
