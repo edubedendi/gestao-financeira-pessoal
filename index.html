@@ -334,10 +334,10 @@
         <select id="cf-conta" onchange="cfMudarConta(this.value)" style="width:auto;max-width:55%;padding:6px 10px;font-size:13px;"></select>
       </div>
       <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
-        <button type="button" class="cf-chip cf-chip-on" data-cf-periodo="1m" onclick="cfMudarPeriodo('1m')">1 mês</button>
-        <button type="button" class="cf-chip" data-cf-periodo="3m" onclick="cfMudarPeriodo('3m')">3 meses</button>
-        <button type="button" class="cf-chip" data-cf-periodo="6m" onclick="cfMudarPeriodo('6m')">6 meses</button>
-        <button type="button" class="cf-chip" data-cf-periodo="1a" onclick="cfMudarPeriodo('1a')">1 ano</button>
+        <button type="button" class="cf-chip" data-cf-periodo="anterior" onclick="cfMudarPeriodo('anterior')">Mês anterior</button>
+        <button type="button" class="cf-chip cf-chip-on" data-cf-periodo="atual" onclick="cfMudarPeriodo('atual')">Mês atual</button>
+        <button type="button" class="cf-chip" data-cf-periodo="proximo" onclick="cfMudarPeriodo('proximo')">Próximo mês</button>
+        <button type="button" class="cf-chip" data-cf-periodo="ano" onclick="cfMudarPeriodo('ano')">Este ano</button>
         <button type="button" class="cf-chip" data-cf-periodo="custom" onclick="cfMudarPeriodo('custom')">Período…</button>
       </div>
       <div id="cf-custom" class="hidden" style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;">
@@ -1552,12 +1552,13 @@ function atualizarHeaderMes() {
 // NAVEGAÇÃO
 // ============================================================
 // ============================================================
-// CONTAS A PAGAR — projeção dia a dia do saldo de uma conta
-// Eventos: lançamentos agendados na conta, recorrências ainda não geradas
-// (respeitando os meses escolhidos) e faturas não pagas dos cartões pagos por ela.
+// CONTAS A PAGAR — saldo dia a dia de uma conta
+// Até hoje: lançamentos reais (realizado). Depois de hoje: projeção com
+// lançamentos agendados, recorrências ainda não geradas (respeitando os meses
+// escolhidos) e faturas não pagas dos cartões pagos pela conta.
 // Mesmas regras do card de fluxo: detalhe de holerite fora; terceiros dentro do saldo.
 // ============================================================
-let cfPeriodo = '1m';          // '1m' | '3m' | '6m' | '1a' | 'custom'
+let cfPeriodo = 'atual';       // 'atual' | 'anterior' | 'proximo' | 'ano' | 'custom'
 let cfContaId = null;
 let cfDe = null, cfAte = null; // período personalizado (ISO)
 let cfMesCal = null;           // 'YYYY-MM' exibido no calendário
@@ -1570,12 +1571,8 @@ const _DIAS_SEM = ['dom','seg','ter','qua','qui','sex','sáb'];
 function _cfIso(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function _cfData(iso) { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); }
 function _cfAddDias(iso, n) { const d = _cfData(iso); d.setDate(d.getDate() + n); return _cfIso(d); }
-function _cfAddMeses(iso, n) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const alvo = new Date(y, m - 1 + n, 1);
-  const ult = ultimoDiaDoMes(alvo.getFullYear(), alvo.getMonth() + 1);
-  return _cfIso(new Date(alvo.getFullYear(), alvo.getMonth(), Math.min(d, ult)));
-}
+function _cfIniMes(y, m) { const t = new Date(y, m - 1, 1); return _cfIso(t); }
+function _cfFimMes(y, m) { const t = new Date(y, m, 0); return _cfIso(t); }
 function _cfBR(iso) { return iso.slice(8) + '/' + iso.slice(5, 7); }
 function _cfCompacto(v) {
   const a = Math.abs(v), s = v < 0 ? '−' : '';
@@ -1596,13 +1593,13 @@ async function _cfTodos(fabrica) {
 }
 
 function _cfJanela() {
-  const hoje = _cfIso(new Date());
-  if (cfPeriodo === 'custom' && cfDe && cfAte) {
-    const de = cfDe < hoje ? hoje : cfDe;
-    return { hoje, de, ate: cfAte < de ? de : cfAte };
-  }
-  const n = { '1m': 1, '3m': 3, '6m': 6, '1a': 12 }[cfPeriodo] || 1;
-  return { hoje, de: hoje, ate: _cfAddMeses(hoje, n) };
+  const h = new Date(), hoje = _cfIso(h);
+  const y = h.getFullYear(), m = h.getMonth() + 1;
+  if (cfPeriodo === 'custom' && cfDe && cfAte) return { hoje, de: cfDe, ate: cfAte < cfDe ? cfDe : cfAte };
+  if (cfPeriodo === 'anterior') return { hoje, de: _cfIniMes(y, m - 1), ate: _cfFimMes(y, m - 1) };
+  if (cfPeriodo === 'proximo') return { hoje, de: _cfIniMes(y, m + 1), ate: _cfFimMes(y, m + 1) };
+  if (cfPeriodo === 'ano') return { hoje, de: hoje, ate: `${y}-12-31` };
+  return { hoje, de: _cfIniMes(y, m), ate: _cfFimMes(y, m) };   // mês atual
 }
 
 async function projetarContas(contaId, { hoje, de, ate }) {
@@ -1611,120 +1608,134 @@ async function projetarContas(contaId, { hoje, de, ate }) {
   const principal = idContaPrincipal();
   const ehPrincipal = contaId === principal;
   const iniMesAtual = hoje.slice(0, 8) + '01';
+  const inicio = de < hoje ? de : hoje;                 // de onde o saldo é calculado dia a dia
+  const temFuturo = ate >= hoje;
   const [yA, mA] = ate.split('-').map(Number);
-  const fimMesAte = `${ate.slice(0, 8)}${String(ultimoDiaDoMes(yA, mA)).padStart(2, '0')}`;
+  const fimMesAte = _cfFimMes(yA, mA);
+  const iniConsulta = inicio < iniMesAtual ? inicio : iniMesAtual;
   const cartoesConta = (cartoes || []).filter(c => c.ativo !== false &&
     (c.conta_pagamento_id ? c.conta_pagamento_id === contaId : ehPrincipal));
 
   const [anteriores, daConta, doCartao, geradas] = await Promise.all([
-    _cfTodos(() => sb.from('lancamentos').select('valor,tipo,observacao').eq('conta_id', contaId).lte('data', hoje).order('id')),
+    _cfTodos(() => sb.from('lancamentos').select('valor,tipo,observacao').eq('conta_id', contaId).lt('data', inicio).order('id')),
     _cfTodos(() => sb.from('lancamentos')
       .select('id,data,descricao,valor,tipo,categoria_id,observacao,recorrencia_id,parcela_atual,total_parcelas,favorecidos(nome),categorias(nome,icone)')
-      .eq('conta_id', contaId).gte('data', iniMesAtual).lte('data', ate).order('id')),
-    cartoesConta.length
+      .eq('conta_id', contaId).gte('data', iniConsulta).lte('data', temFuturo ? fimMesAte : ate).order('id')),
+    (temFuturo && cartoesConta.length)
       ? _cfTodos(() => sb.from('lancamentos').select('id,data,descricao,valor,cartao_id,parcela_atual,total_parcelas')
           .in('cartao_id', cartoesConta.map(c => c.id)).eq('tipo', 'despesa').gte('data', iniMesAtual).lte('data', fimMesAte).order('id'))
       : Promise.resolve([]),
-    _cfTodos(() => sb.from('lancamentos').select('recorrencia_id,data').not('recorrencia_id', 'is', null)
-      .gte('data', iniMesAtual).lte('data', fimMesAte).order('id'))
+    temFuturo
+      ? _cfTodos(() => sb.from('lancamentos').select('recorrencia_id,data').not('recorrencia_id', 'is', null)
+          .gte('data', iniMesAtual).lte('data', fimMesAte).order('id'))
+      : Promise.resolve([])
   ]);
 
   const sinal = l => (l.tipo === 'receita' ? 1 : -1) * Number(l.valor);
-  const saldoHoje = Number(conta?.saldo_inicial || 0) +
+  const saldoAntesInicio = Number(conta?.saldo_inicial || 0) +
     anteriores.filter(l => l.observacao !== '__hol__').reduce((t, l) => t + sinal(l), 0);
-
-  // Meses de hoje até o mês de "ate"
-  const mesesJanela = [];
-  for (let k = 0; ; k++) {
-    const d = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 1 + k, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    if (ym > ate.slice(0, 7)) break;
-    mesesJanela.push({ ym, y: d.getFullYear(), m: d.getMonth() + 1 });
-  }
+  const terc = id => typeof categoriaForaDoControle === 'function' && categoriaForaDoControle(id);
+  const tipoDe = l => l.observacao === '__pgtofatura__' ? 'pgto' : l.recorrencia_id ? 'recorrencia' : l.total_parcelas > 1 ? 'parcela' : 'agendado';
+  const eventoDe = (l, realizado) => ({
+    data: l.data, valor: sinal(l), tipoEv: tipoDe(l), id: l.id, realizado,
+    nome: l.descricao || l.favorecidos?.nome || 'Lançamento',
+    sub: [l.categorias?.nome, l.total_parcelas > 1 ? `${l.parcela_atual}/${l.total_parcelas}` : ''].filter(Boolean).join(' • '),
+    terceiros: terc(l.categoria_id)
+  });
 
   const eventos = [];
-  const terc = id => typeof categoriaForaDoControle === 'function' && categoriaForaDoControle(id);
-
-  // 1) Lançamentos já agendados na conta
+  // 1) Lançamentos da conta: até hoje = realizado; depois de hoje = agendado
   for (const l of daConta) {
-    if (l.data <= hoje || l.observacao === '__hol__') continue;
-    const tipoEv = l.observacao === '__pgtofatura__' ? 'pgto' : l.recorrencia_id ? 'recorrencia' : l.total_parcelas > 1 ? 'parcela' : 'agendado';
-    eventos.push({
-      data: l.data, valor: sinal(l), tipoEv, id: l.id,
-      nome: l.descricao || l.favorecidos?.nome || 'Lançamento',
-      sub: [l.categorias?.nome, l.total_parcelas > 1 ? `${l.parcela_atual}/${l.total_parcelas}` : ''].filter(Boolean).join(' • '),
-      terceiros: terc(l.categoria_id)
-    });
+    if (l.observacao === '__hol__' || l.data < inicio || l.data > ate) continue;
+    eventos.push(eventoDe(l, l.data <= hoje));
   }
 
-  // 2) Recorrências ainda não geradas
-  const jaGerada = new Set(geradas.map(g => g.recorrencia_id + '|' + g.data.slice(0, 7)));
-  const recNoCartao = {};   // cartao_id|ym → [{nome, valor}]
-  for (const r of (recorrencias || [])) {
-    if (r.ativa === false) continue;
-    const alvoConta = r.conta_id || (r.cartao_id ? null : principal);
-    for (const { ym, y, m } of mesesJanela) {
-      if (Array.isArray(r.meses) && r.meses.length && !r.meses.includes(m)) continue;
-      if (jaGerada.has(r.id + '|' + ym)) continue;
-      const dataR = `${ym}-${String(Math.min(Number(r.dia_do_mes) || 1, 28)).padStart(2, '0')}`;
-      if (dataR < hoje) continue;
-      const nome = r.favorecidos?.nome || r.categorias?.nome || (r.tipo === 'receita' ? 'Receita' : 'Despesa');
-      if (r.cartao_id) {
-        if (!cartoesConta.some(c => c.id === r.cartao_id)) continue;
-        (recNoCartao[r.cartao_id + '|' + ym] = recNoCartao[r.cartao_id + '|' + ym] || []).push({ nome: nome + ' (recorrência)', valor: Number(r.valor) });
-      } else if (alvoConta === contaId && dataR <= ate) {
-        eventos.push({ data: dataR, valor: (r.tipo === 'receita' ? 1 : -1) * Number(r.valor), tipoEv: 'prevista',
-          nome, sub: [r.categorias?.nome, (Array.isArray(r.meses) && r.meses.length && r.meses.length < 12) ? resumoMeses(r.meses) : ''].filter(Boolean).join(' • '), terceiros: terc(r.categoria_id) });
+  if (temFuturo) {
+    // Meses de hoje até o mês de "ate"
+    const mesesJanela = [];
+    for (let k = 0; ; k++) {
+      const d = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 1 + k, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (ym > ate.slice(0, 7)) break;
+      mesesJanela.push({ ym, y: d.getFullYear(), m: d.getMonth() + 1 });
+    }
+
+    // 2) Recorrências ainda não geradas
+    const jaGerada = new Set(geradas.map(g => g.recorrencia_id + '|' + g.data.slice(0, 7)));
+    const recNoCartao = {};
+    for (const r of (recorrencias || [])) {
+      if (r.ativa === false) continue;
+      const alvoConta = r.conta_id || (r.cartao_id ? null : principal);
+      for (const { ym, m } of mesesJanela) {
+        if (Array.isArray(r.meses) && r.meses.length && !r.meses.includes(m)) continue;
+        if (jaGerada.has(r.id + '|' + ym)) continue;
+        const dataR = `${ym}-${String(Math.min(Number(r.dia_do_mes) || 1, 28)).padStart(2, '0')}`;
+        if (dataR < hoje) continue;
+        const nome = r.favorecidos?.nome || r.categorias?.nome || (r.tipo === 'receita' ? 'Receita' : 'Despesa');
+        if (r.cartao_id) {
+          if (!cartoesConta.some(c => c.id === r.cartao_id)) continue;
+          (recNoCartao[r.cartao_id + '|' + ym] = recNoCartao[r.cartao_id + '|' + ym] || []).push({ nome: nome + ' (recorrência)', valor: Number(r.valor) });
+        } else if (alvoConta === contaId && dataR <= ate) {
+          eventos.push({ data: dataR, valor: (r.tipo === 'receita' ? 1 : -1) * Number(r.valor), tipoEv: 'prevista', realizado: false,
+            nome, sub: [r.categorias?.nome, (Array.isArray(r.meses) && r.meses.length && r.meses.length < 12) ? resumoMeses(r.meses) : ''].filter(Boolean).join(' • '),
+            terceiros: terc(r.categoria_id) });
+        }
+      }
+    }
+
+    // 3) Faturas não pagas
+    const pagamentos = daConta.filter(l => l.observacao === '__pgtofatura__');
+    for (const c of cartoesConta) {
+      for (const { ym, y, m } of mesesJanela) {
+        const venc = `${ym}-${String(Math.min(Number(c.dia_vencimento) || 1, ultimoDiaDoMes(y, m))).padStart(2, '0')}`;
+        if (venc > ate) continue;
+        const itens = doCartao.filter(l => l.cartao_id === c.id && l.data.slice(0, 7) === ym)
+          .map(l => ({ nome: l.descricao + (l.total_parcelas > 1 ? ` (${l.parcela_atual}/${l.total_parcelas})` : ''), valor: Number(l.valor), id: l.id }))
+          .concat(recNoCartao[c.id + '|' + ym] || []);
+        const total = itens.reduce((t, i) => t + i.valor, 0);
+        if (total <= 0.004) continue;
+        const ref = `(${meses[m - 1]}/${y})`;
+        if (pagamentos.some(p => (p.descricao || '').includes(c.nome) && (p.descricao || '').includes(ref))) continue;
+        const vencida = venc < hoje;
+        eventos.push({ data: vencida ? hoje : venc, valor: -total, tipoEv: 'fatura', realizado: false, vencida, vencOriginal: venc,
+          nome: `Fatura ${c.nome}`, sub: `${meses[m - 1]}/${y} • ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`,
+          itens: itens.sort((a, b) => b.valor - a.valor) });
       }
     }
   }
 
-  // 3) Faturas não pagas
-  const pagamentos = daConta.filter(l => l.observacao === '__pgtofatura__');
-  for (const c of cartoesConta) {
-    for (const { ym, y, m } of mesesJanela) {
-      const venc = `${ym}-${String(Math.min(Number(c.dia_vencimento) || 1, ultimoDiaDoMes(y, m))).padStart(2, '0')}`;
-      if (venc > ate) continue;
-      const itens = doCartao.filter(l => l.cartao_id === c.id && l.data.slice(0, 7) === ym)
-        .map(l => ({ nome: l.descricao + (l.total_parcelas > 1 ? ` (${l.parcela_atual}/${l.total_parcelas})` : ''), valor: Number(l.valor), id: l.id }))
-        .concat(recNoCartao[c.id + '|' + ym] || []);
-      const total = itens.reduce((t, i) => t + i.valor, 0);
-      if (total <= 0.004) continue;
-      const ref = `(${meses[m - 1]}/${y})`;
-      if (pagamentos.some(p => (p.descricao || '').includes(c.nome) && (p.descricao || '').includes(ref))) continue;
-      const vencida = venc < hoje;
-      eventos.push({ data: vencida ? hoje : venc, valor: -total, tipoEv: 'fatura', vencida, vencOriginal: venc,
-        nome: `Fatura ${c.nome}`, sub: `${meses[m - 1]}/${y} • ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`, itens: itens.sort((a, b) => b.valor - a.valor) });
-    }
-  }
+  // Ordem do dia: realizado antes do previsto; entradas antes das saídas
+  eventos.sort((a, b) => a.data.localeCompare(b.data) || (b.realizado - a.realizado) ||
+    (b.valor > 0) - (a.valor > 0) || Math.abs(b.valor) - Math.abs(a.valor));
 
-  // Ordem do dia: entradas antes das saídas (o salário do dia cobre as contas do dia)
-  eventos.sort((a, b) => a.data.localeCompare(b.data) || (b.valor > 0) - (a.valor > 0) || Math.abs(b.valor) - Math.abs(a.valor));
-
-  // Saldo ao fim de cada dia, de hoje até "ate"
   const porDia = {};
   eventos.forEach(e => (porDia[e.data] = porDia[e.data] || []).push(e));
   const dias = [];
-  let saldo = saldoHoje, saldoAntesDe = saldoHoje;
-  for (let d = hoje; d <= ate; d = _cfAddDias(d, 1)) {
+  let saldo = saldoAntesInicio, saldoAntesDe = saldoAntesInicio, saldoHoje = null;
+  for (let d = inicio; d <= ate; d = _cfAddDias(d, 1)) {
     if (d === de) saldoAntesDe = saldo;
     const evs = porDia[d] || [];
-    evs.forEach(e => { saldo += e.valor; e.saldoApos = saldo; });
-    dias.push({ data: d, eventos: evs, saldo,
-      entradas: evs.filter(e => e.valor > 0).reduce((t, e) => t + e.valor, 0),
-      saidas: evs.filter(e => e.valor < 0).reduce((t, e) => t - e.valor, 0) });
+    let saldoReal = saldo;
+    evs.forEach(e => { saldo += e.valor; e.saldoApos = saldo; if (e.realizado) saldoReal = saldo; });
+    if (d === hoje) saldoHoje = saldoReal;
+    const soma = (f) => evs.filter(f).reduce((t, e) => t + Math.abs(e.valor), 0);
+    dias.push({ data: d, eventos: evs, saldo, passado: d < hoje,
+      entradas: soma(e => e.valor > 0), saidas: soma(e => e.valor < 0),
+      entradasPrev: soma(e => e.valor > 0 && !e.realizado), saidasPrev: soma(e => e.valor < 0 && !e.realizado) });
   }
   const janela = dias.filter(d => d.data >= de);
+  const futuro = janela.filter(d => d.data >= hoje);
   const colchao = Number(conta?.colchao_minimo || 0);
-  const menor = janela.reduce((a, b) => (b.saldo < a.saldo ? b : a), janela[0] || { saldo: saldoAntesDe, data: de });
+  const baseMenor = futuro.length ? futuro : janela;
+  const menor = baseMenor.reduce((a, b) => (b.saldo < a.saldo ? b : a), baseMenor[0] || { saldo: saldoAntesDe, data: de });
+  const somaJ = k => janela.reduce((t, d) => t + d[k], 0);
   return {
-    conta, hoje, de, ate, colchao, saldoHoje, saldoInicio: saldoAntesDe, dias: janela,
-    entradas: janela.reduce((t, d) => t + d.entradas, 0),
-    saidas: janela.reduce((t, d) => t + d.saidas, 0),
+    conta, hoje, de, ate, colchao, saldoInicio: saldoAntesDe, saldoHoje, dias: janela,
+    entradas: somaJ('entradas'), saidas: somaJ('saidas'), entradasPrev: somaJ('entradasPrev'), saidasPrev: somaJ('saidasPrev'),
     saldoFinal: janela.length ? janela[janela.length - 1].saldo : saldoAntesDe,
-    menor,
-    primeiroNegativo: janela.find(d => d.saldo < 0),
-    primeiroAbaixoColchao: colchao > 0 ? janela.find(d => d.saldo < colchao) : null,
+    menor, soPassado: !futuro.length, soFuturo: de > hoje,
+    primeiroNegativo: futuro.find(d => d.saldo < 0),
+    primeiroAbaixoColchao: colchao > 0 ? futuro.find(d => d.saldo < colchao) : null,
     temVencida: eventos.some(e => e.vencida)
   };
 }
@@ -1734,10 +1745,10 @@ function cfMudarPeriodo(p) {
   cfPeriodo = p;
   document.getElementById('cf-custom')?.classList.toggle('hidden', p !== 'custom');
   if (p === 'custom') {
-    const hoje = _cfIso(new Date());
+    const j = _cfJanela();
     const inpDe = document.getElementById('cf-de'), inpAte = document.getElementById('cf-ate');
-    if (!inpDe.value) inpDe.value = hoje;
-    if (!inpAte.value) inpAte.value = _cfAddMeses(hoje, 2);
+    if (!inpDe.value) inpDe.value = j.de;
+    if (!inpAte.value) inpAte.value = j.ate;
     cfDe = inpDe.value; cfAte = inpAte.value;
   }
   cfMesCal = null; cfDiaSel = null;
@@ -1755,7 +1766,6 @@ function cfMudarConta(id) { cfContaId = id; cfDiaSel = null; renderizarContasFut
 async function renderizarContasFuturas() {
   const el = document.getElementById('cf-conteudo');
   if (!el) return;
-  // Botões de período e conta
   document.querySelectorAll('[data-cf-periodo]').forEach(b => b.classList.toggle('cf-chip-on', b.dataset.cfPeriodo === cfPeriodo));
   document.getElementById('cf-custom')?.classList.toggle('hidden', cfPeriodo !== 'custom');
   const ativas = (contas || []).filter(c => c.ativo !== false);
@@ -1769,33 +1779,45 @@ async function renderizarContasFuturas() {
   try { d = await projetarContas(cfContaId, _cfJanela()); }
   catch (e) { el.innerHTML = `<div class="card" style="padding:16px;color:#dc2626;">Erro ao projetar: ${_cfEsc(e.message || e)}</div>`; return; }
   _cfDados = d;
-  if (!cfMesCal || cfMesCal < d.de.slice(0, 7) || cfMesCal > d.ate.slice(0, 7)) cfMesCal = d.de.slice(0, 7);
+  if (!cfMesCal || cfMesCal < d.de.slice(0, 7) || cfMesCal > d.ate.slice(0, 7)) {
+    cfMesCal = (d.hoje >= d.de && d.hoje <= d.ate) ? d.hoje.slice(0, 7) : d.de.slice(0, 7);
+  }
 
   const cor = v => v < 0 ? '#dc2626' : (d.colchao > 0 && v < d.colchao ? '#b45309' : '#0f766e');
+  const rotIni = d.de === d.hoje ? 'Saldo hoje' : `Saldo em ${_cfBR(_cfAddDias(d.de, -1))}`;
+  const rotFim = `Saldo ${d.soPassado ? '' : 'previsto '}em ${_cfBR(d.ate)}`;
+  const prev = (v) => (!d.soPassado && !d.soFuturo && v > 0) ? `<div style="font-size:11px;color:#94a3b8;">${R$(v)} ainda previsto</div>` : '';
   let alerta = '';
-  if (d.primeiroNegativo) alerta = `<div class="cf-alerta" style="background:#fee2e2;color:#991b1b;">🔴 Em <b>${_cfBR(d.primeiroNegativo.data)}</b> o saldo fica <b>negativo</b> (${R$(d.primeiroNegativo.saldo)}).</div>`;
+  if (d.soPassado) alerta = `<div class="cf-alerta" style="background:#f1f5f9;color:#475569;">Período encerrado — tudo aqui já aconteceu.</div>`;
+  else if (d.primeiroNegativo) alerta = `<div class="cf-alerta" style="background:#fee2e2;color:#991b1b;">🔴 Em <b>${_cfBR(d.primeiroNegativo.data)}</b> o saldo fica <b>negativo</b> (${R$(d.primeiroNegativo.saldo)}).</div>`;
   else if (d.primeiroAbaixoColchao) alerta = `<div class="cf-alerta" style="background:#fef3c7;color:#92400e;">🟡 Em <b>${_cfBR(d.primeiroAbaixoColchao.data)}</b> o saldo fica abaixo do colchão de ${R$(d.colchao)} (${R$(d.primeiroAbaixoColchao.saldo)}).</div>`;
-  else alerta = `<div class="cf-alerta" style="background:#d1fae5;color:#065f46;">🟢 O saldo fica ${d.colchao > 0 ? 'acima do colchão' : 'positivo'} em todo o período.</div>`;
+  else alerta = `<div class="cf-alerta" style="background:#d1fae5;color:#065f46;">🟢 O saldo fica ${d.colchao > 0 ? 'acima do colchão' : 'positivo'} até ${_cfBR(d.ate)}.</div>`;
   if (d.temVencida) alerta += `<div class="cf-alerta" style="background:#fff7ed;color:#9a3412;">⚠️ Há fatura com vencimento passado sem pagamento registrado — ela foi colocada em hoje.</div>`;
+  const linhaHoje = (d.saldoHoje !== null && d.de < d.hoje && !d.soPassado)
+    ? `<div style="margin-top:8px;font-size:12px;color:#64748b;">Hoje (${_cfBR(d.hoje)}): <b style="color:${cor(d.saldoHoje)};">${R$(d.saldoHoje)}</b></div>` : '';
 
   el.innerHTML = `
     <div class="card" style="padding:16px;margin-bottom:12px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div><div class="cf-rot">Saldo ${d.de === d.hoje ? 'hoje' : 'em ' + _cfBR(d.de)}</div><div class="cf-val" style="color:${cor(d.saldoInicio)};">${R$(d.saldoInicio)}</div></div>
-        <div><div class="cf-rot">Saldo em ${_cfBR(d.ate)}</div><div class="cf-val" style="color:${cor(d.saldoFinal)};">${R$(d.saldoFinal)}</div></div>
-        <div><div class="cf-rot">↑ Entradas previstas</div><div class="cf-val" style="font-size:15px;color:#059669;">${R$(d.entradas)}</div></div>
-        <div><div class="cf-rot">↓ Saídas previstas</div><div class="cf-val" style="font-size:15px;color:#dc2626;">${R$(d.saidas)}</div></div>
+        <div><div class="cf-rot">${rotIni}</div><div class="cf-val" style="color:${cor(d.saldoInicio)};">${R$(d.saldoInicio)}</div></div>
+        <div><div class="cf-rot">${rotFim}</div><div class="cf-val" style="color:${cor(d.saldoFinal)};">${R$(d.saldoFinal)}</div></div>
+        <div><div class="cf-rot">↑ Entradas</div><div class="cf-val" style="font-size:15px;color:#059669;">${R$(d.entradas)}</div>${prev(d.entradasPrev)}</div>
+        <div><div class="cf-rot">↓ Saídas</div><div class="cf-val" style="font-size:15px;color:#dc2626;">${R$(d.saidas)}</div>${prev(d.saidasPrev)}</div>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:#64748b;">Menor saldo: <b style="color:${cor(d.menor.saldo)};">${R$(d.menor.saldo)}</b> em ${_cfBR(d.menor.data)}${d.colchao > 0 ? ` · colchão ${R$(d.colchao)}` : ''}</div>
+      ${linhaHoje}
+      ${d.soPassado ? '' : `<div style="margin-top:6px;font-size:12px;color:#64748b;">Menor saldo previsto: <b style="color:${cor(d.menor.saldo)};">${R$(d.menor.saldo)}</b> em ${_cfBR(d.menor.data)}${d.colchao > 0 ? ` · colchão ${R$(d.colchao)}` : ''}</div>`}
       ${alerta}
     </div>
     <div class="card" style="padding:12px 12px 6px;margin-bottom:12px;">
-      <div style="font-size:13px;font-weight:700;color:#374151;margin:2px 4px 6px;">📉 Saldo projetado</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 4px 6px;">
+        <span style="font-size:13px;font-weight:700;color:#374151;">📉 Saldo dia a dia</span>
+        ${d.soPassado || d.soFuturo ? '' : `<span style="font-size:10px;color:#94a3b8;">━ realizado &nbsp; ┅ previsto</span>`}
+      </div>
       <div id="cf-grafico">${_cfSvgGrafico(d)}</div>
     </div>
     <div class="card" style="padding:12px;margin-bottom:12px;" id="cf-calendario">${_cfHtmlCalendario(d)}</div>
     <div id="cf-lista">${_cfHtmlLista(d)}</div>
-    <p style="font-size:11px;color:#94a3b8;margin:8px 4px 0;">Entram aqui lançamentos agendados, recorrências e faturas dos cartões pagos por esta conta. Gastos do dia a dia sem data (o que ainda resta do orçamento) não entram.</p>`;
+    <p style="font-size:11px;color:#94a3b8;margin:8px 4px 0;">Até hoje: lançamentos reais da conta. Depois de hoje: agendados, recorrências e faturas dos cartões pagos por esta conta. Gastos do dia a dia sem data (o que ainda resta do orçamento) ainda não entram na previsão.</p>`;
   _cfLigarGrafico();
 }
 
@@ -1807,39 +1829,60 @@ function _cfReferencias(d) {
   const limite = Math.max(d.colchao || 0, 1) * 2.5;
   return menor <= limite ? [0, d.colchao || 0] : [];
 }
-function _cfSvgGrafico(d) {
+function _cfEscala(d) {
   const W = 640, H = 210, pl = 56, pr = 10, pt = 12, pb = 24;
-  const pontos = [{ data: d.de, saldo: d.saldoInicio, inicio: true }].concat(d.dias);
-  const valores = pontos.map(p => p.saldo).concat(_cfReferencias(d));
+  const valores = [d.saldoInicio].concat(d.dias.map(p => p.saldo), _cfReferencias(d));
   let min = Math.min(...valores), max = Math.max(...valores);
   if (max - min < 1) { max += 1; min -= 1; }
   const folga = (max - min) * 0.08; min -= folga; max += folga;
   const n = Math.max(d.dias.length, 1);
-  const x = i => pl + (W - pl - pr) * (i / n);
-  const y = v => pt + (H - pt - pb) * (1 - (v - min) / (max - min));
-  // Linha em degraus: o saldo só muda no dia de cada evento
-  let caminho = `M ${x(0).toFixed(1)} ${y(pontos[0].saldo).toFixed(1)}`;
-  d.dias.forEach((p, i) => { caminho += ` H ${x(i + 1).toFixed(1)} V ${y(p.saldo).toFixed(1)}`; });
-  const area = caminho + ` H ${x(n).toFixed(1)} V ${y(Math.max(min, 0)).toFixed(1)} H ${x(0).toFixed(1)} Z`;
+  return { W, H, pl, pr, pt, pb, min, max, folga, n,
+    x: i => pl + (W - pl - pr) * (i / n),
+    y: v => pt + (H - pt - pb) * (1 - (v - min) / (max - min)) };
+}
+function _cfSvgGrafico(d) {
+  const { W, H, pl, pr, pt, pb, min, max, folga, n, x, y } = _cfEscala(d);
+  // Linha em degraus; até hoje cheia, depois tracejada
+  const iHoje = d.dias.findIndex(p => p.data >= d.hoje);           // -1: tudo passado
+  const corte = iHoje === -1 ? d.dias.length : iHoje + 1;           // dias realizados (inclui hoje)
+  let real = `M ${x(0).toFixed(1)} ${y(d.saldoInicio).toFixed(1)}`, prev = '';
+  let ultimo = d.saldoInicio;
+  d.dias.forEach((p, i) => {
+    const seg = ` H ${x(i + 1).toFixed(1)} V ${y(p.saldo).toFixed(1)}`;
+    if (i < corte && !d.soFuturo) real += seg;
+    else { if (!prev) prev = `M ${x(i).toFixed(1)} ${y(ultimo).toFixed(1)}`; prev += seg; }
+    ultimo = p.saldo;
+  });
+  if (d.soFuturo) real = '';
+  const tudo = `M ${x(0).toFixed(1)} ${y(d.saldoInicio).toFixed(1)}` + d.dias.map((p, i) => ` H ${x(i + 1).toFixed(1)} V ${y(p.saldo).toFixed(1)}`).join('');
+  const area = tudo + ` H ${x(n).toFixed(1)} V ${(H - pb).toFixed(1)} H ${x(0).toFixed(1)} Z`;
   const ticks = [max - folga, (max + min) / 2, min + folga].map(v =>
     `<text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#94a3b8">${_cfCompacto(v)}</text>`).join('');
-  // Marcas de mês
   let marcas = '';
   d.dias.forEach((p, i) => {
-    if (p.data.slice(8) === '01' || i === 0) {
+    const dia = p.data.slice(8);
+    const ehInicioMes = dia === '01';
+    const passo = n > 62 ? null : (n > 20 ? ['01', '08', '15', '22'] : null);
+    if (ehInicioMes || i === 0) {
       const [yy, mm] = p.data.split('-').map(Number);
-      marcas += `<line x1="${x(i + 1)}" x2="${x(i + 1)}" y1="${pt}" y2="${H - pb}" stroke="#f1f5f9"/>
-        <text x="${x(i + 1) + 2}" y="${H - 8}" font-size="11" fill="#94a3b8">${i === 0 ? _cfBR(p.data) : _MESES_ABREV[mm - 1] + (mm === 1 ? '/' + String(yy).slice(2) : '')}</text>`;
+      marcas += `<line x1="${x(i)}" x2="${x(i)}" y1="${pt}" y2="${H - pb}" stroke="#f1f5f9"/>
+        <text x="${x(i) + 2}" y="${H - 8}" font-size="11" fill="#94a3b8">${n <= 62 ? _cfBR(p.data) : _MESES_ABREV[mm - 1] + (mm === 1 ? '/' + String(yy).slice(2) : '')}</text>`;
+    } else if (passo && passo.includes(dia)) {
+      marcas += `<text x="${x(i) + 2}" y="${H - 8}" font-size="11" fill="#cbd5e1">${_cfBR(p.data)}</text>`;
     }
   });
-  const iMenor = d.dias.indexOf(d.menor);
+  const marcaHoje = (iHoje >= 0 && !d.soFuturo && d.dias[iHoje].data === d.hoje && iHoje > 0)
+    ? `<line x1="${x(iHoje + 1)}" x2="${x(iHoje + 1)}" y1="${pt}" y2="${H - pb}" stroke="#4f46e5" stroke-dasharray="2 3" stroke-opacity=".6"/>
+       <text x="${x(iHoje + 1) + 3}" y="${pt + 10}" font-size="10" fill="#4f46e5">hoje</text>` : '';
+  const iMenor = d.soPassado ? -1 : d.dias.indexOf(d.menor);
   const linhaZero = (min < 0 && max > 0) ? `<line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" stroke="#dc2626" stroke-dasharray="4 4" stroke-width="1"/>` : '';
   const linhaColchao = (d.colchao > min && d.colchao < max) ? `<line x1="${pl}" x2="${W - pr}" y1="${y(d.colchao)}" y2="${y(d.colchao)}" stroke="#f59e0b" stroke-dasharray="6 4" stroke-width="1.2"/>
     <text x="${W - pr}" y="${y(d.colchao) - 4}" text-anchor="end" font-size="10" fill="#b45309">colchão</text>` : '';
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;touch-action:pan-y;" id="cf-svg">
-    ${marcas}${ticks}${linhaZero}${linhaColchao}
+    ${marcas}${ticks}${linhaZero}${linhaColchao}${marcaHoje}
     <path d="${area}" fill="#4f46e5" fill-opacity="0.07"/>
-    <path d="${caminho}" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>
+    ${real ? `<path d="${real}" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>` : ''}
+    ${prev ? `<path d="${prev}" fill="none" stroke="#4f46e5" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>` : ''}
     ${iMenor >= 0 ? `<circle cx="${x(iMenor + 1)}" cy="${y(d.menor.saldo)}" r="4" fill="${d.menor.saldo < 0 ? '#dc2626' : '#f59e0b'}" stroke="white" stroke-width="1.5"/>` : ''}
     <g id="cf-cursor" style="display:none;">
       <line id="cf-cur-l" y1="${pt}" y2="${H - pb}" stroke="#64748b" stroke-width="1"/>
@@ -1854,25 +1897,22 @@ function _cfSvgGrafico(d) {
 
 function _cfLigarGrafico() {
   const svg = document.getElementById('cf-svg'), d = _cfDados;
-  if (!svg || !d) return;
-  const W = 640, H = 210, pl = 56, pr = 10, pt = 12, pb = 24;
-  const valores = [d.saldoInicio].concat(d.dias.map(p => p.saldo), _cfReferencias(d));
-  let min = Math.min(...valores), max = Math.max(...valores);
-  if (max - min < 1) { max += 1; min -= 1; }
-  const folga = (max - min) * 0.08; min -= folga; max += folga;
-  const n = Math.max(d.dias.length, 1);
-  const y = v => pt + (H - pt - pb) * (1 - (v - min) / (max - min));
+  if (!svg || !d || !d.dias.length) return;
+  const { W, pl, pr, pt, n, y } = _cfEscala(d);
   const g = document.getElementById('cf-cursor');
-  const mover = ev => {
+  const indice = clientX => {
     const r = svg.getBoundingClientRect();
-    const px = ((ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left) * (W / r.width);
-    const i = Math.min(n - 1, Math.max(0, Math.floor((px - pl) / ((W - pl - pr) / n))));
+    const px = (clientX - r.left) * (W / r.width);
+    return Math.min(n - 1, Math.max(0, Math.floor((px - pl) / ((W - pl - pr) / n))));
+  };
+  const mover = ev => {
+    const i = indice(ev.touches ? ev.touches[0].clientX : ev.clientX);
     const p = d.dias[i]; if (!p) return;
     const cx = pl + (W - pl - pr) * ((i + 1) / n), cy = y(p.saldo);
     g.style.display = '';
-    document.getElementById('cf-cur-l').setAttribute('x1', cx); document.getElementById('cf-cur-l').setAttribute('x2', cx);
+    const l = document.getElementById('cf-cur-l'); l.setAttribute('x1', cx); l.setAttribute('x2', cx);
     const c = document.getElementById('cf-cur-c'); c.setAttribute('cx', cx); c.setAttribute('cy', cy);
-    const t1 = `${_DIAS_SEM[_cfData(p.data).getDay()]}, ${_cfBR(p.data)}${p.eventos.length ? ' · ' + p.eventos.length + ' item(ns)' : ''}`;
+    const t1 = `${_DIAS_SEM[_cfData(p.data).getDay()]}, ${_cfBR(p.data)}${p.data > d.hoje ? ' · previsto' : ''}`;
     const t2 = R$(p.saldo);
     const larg = Math.max(t1.length * 6, t2.length * 7.5) + 16;
     const bx = Math.min(Math.max(cx - larg / 2, pl), W - pr - larg), by = Math.max(pt, cy - 46);
@@ -1885,12 +1925,7 @@ function _cfLigarGrafico() {
   alvo.addEventListener('touchstart', mover, { passive: true });
   alvo.addEventListener('touchmove', mover, { passive: true });
   alvo.addEventListener('mouseleave', () => { g.style.display = 'none'; });
-  alvo.addEventListener('click', ev => {
-    const r = svg.getBoundingClientRect();
-    const px = (ev.clientX - r.left) * (W / r.width);
-    const i = Math.min(n - 1, Math.max(0, Math.floor((px - pl) / ((W - pl - pr) / n))));
-    if (d.dias[i]) cfSelecionarDia(d.dias[i].data);
-  });
+  alvo.addEventListener('click', ev => { const p = d.dias[indice(ev.clientX)]; if (p) cfSelecionarDia(p.data); });
 }
 
 // ---------- Calendário ----------
@@ -1917,15 +1952,16 @@ function _cfHtmlCalendario(d) {
     const iso = `${cfMesCal}-${String(dia).padStart(2, '0')}`;
     const p = porData[iso];
     if (!p) { cel += `<div class="cf-dia" style="color:#cbd5e1;background:#fafafa;">${dia}</div>`; continue; }
-    const fundo = p.saldo < 0 ? '#fee2e2' : (d.colchao > 0 && p.saldo < d.colchao ? '#fef3c7' : 'white');
+    const fundo = p.passado ? '#f8fafc' : (p.saldo < 0 ? '#fee2e2' : (d.colchao > 0 && p.saldo < d.colchao ? '#fef3c7' : 'white'));
     const peso = p.saidas > 0 ? 0.25 + 0.75 * (p.saidas / maiorSaida) : 0;
-    const borda = p.saidas > 0 ? `box-shadow:inset 0 -3px 0 rgba(220,38,38,${peso.toFixed(2)});` : '';
+    const borda = p.saidas > 0 ? `box-shadow:inset 0 -3px 0 rgba(220,38,38,${(p.passado ? peso * 0.5 : peso).toFixed(2)});` : '';
     const sel = cfDiaSel === iso ? 'outline:2px solid #4f46e5;outline-offset:-2px;' : '';
-    const hoje = iso === d.hoje ? 'font-weight:800;color:#4f46e5;' : '';
+    const numero = iso === d.hoje ? 'font-weight:800;color:#4f46e5;' : (p.passado ? 'color:#94a3b8;' : '');
+    const op = p.passado ? 'opacity:.75;' : '';
     cel += `<div class="cf-dia" onclick="cfSelecionarDia('${iso}')" style="background:${fundo};${borda}${sel}cursor:pointer;">
-      <div style="${hoje}">${dia}</div>
-      ${p.saidas > 0 ? `<div style="font-size:9px;color:#dc2626;line-height:1.1;">−${_cfCompacto(p.saidas)}</div>` : ''}
-      ${p.entradas > 0 ? `<div style="font-size:9px;color:#059669;line-height:1.1;">+${_cfCompacto(p.entradas)}</div>` : ''}
+      <div style="${numero}">${dia}</div>
+      ${p.saidas > 0 ? `<div style="font-size:9px;color:#dc2626;line-height:1.1;${op}">−${_cfCompacto(p.saidas)}</div>` : ''}
+      ${p.entradas > 0 ? `<div style="font-size:9px;color:#059669;line-height:1.1;${op}">+${_cfCompacto(p.entradas)}</div>` : ''}
     </div>`;
   }
   return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -1935,6 +1971,7 @@ function _cfHtmlCalendario(d) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">${cel}</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:#64748b;margin-top:8px;">
+      <span><span style="display:inline-block;width:10px;height:10px;background:#f1f5f9;border-radius:2px;"></span> já aconteceu</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#fef3c7;border-radius:2px;"></span> abaixo do colchão</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#fee2e2;border-radius:2px;"></span> saldo negativo</span>
       <span><span style="display:inline-block;width:10px;height:3px;background:#dc2626;vertical-align:middle;"></span> mais forte = dia mais pesado</span>
@@ -1953,7 +1990,7 @@ function cfSelecionarDia(iso) {
 const _CF_TIPOS = {
   fatura: { ic: '💳', rot: 'Fatura' }, prevista: { ic: '🔁', rot: 'Recorrência prevista' },
   recorrencia: { ic: '🔁', rot: 'Recorrência' }, parcela: { ic: '🧾', rot: 'Parcela' },
-  agendado: { ic: '📅', rot: 'Agendado' }, pgto: { ic: '💳', rot: 'Pagamento de fatura agendado' }
+  agendado: { ic: '📅', rot: 'Agendado' }, pgto: { ic: '💳', rot: 'Pagamento de fatura' }
 };
 
 function cfAlternarFatura(idx) {
@@ -1963,17 +2000,19 @@ function cfAlternarFatura(idx) {
 
 function _cfHtmlLista(d) {
   const comEventos = d.dias.filter(p => p.eventos.length);
-  if (!comEventos.length) return `<div class="card" style="padding:16px;font-size:13px;color:#94a3b8;">Nada previsto neste período.</div>`;
+  if (!comEventos.length) return `<div class="card" style="padding:16px;font-size:13px;color:#94a3b8;">Nada neste período.</div>`;
   let idxFat = 0;
   return comEventos.map(p => {
     const dt = _cfData(p.data);
-    const corS = p.saldo < 0 ? '#dc2626' : (d.colchao > 0 && p.saldo < d.colchao ? '#b45309' : '#64748b');
+    const corS = p.passado ? '#94a3b8' : (p.saldo < 0 ? '#dc2626' : (d.colchao > 0 && p.saldo < d.colchao ? '#b45309' : '#64748b'));
     const itens = p.eventos.map(e => {
-      const t = _CF_TIPOS[e.tipoEv] || _CF_TIPOS.agendado;
+      const t0 = _CF_TIPOS[e.tipoEv] || _CF_TIPOS.agendado;
+      const t = (e.realizado && e.tipoEv === 'agendado') ? { ic: e.valor >= 0 ? '💰' : '💸', rot: '' } : t0;
       const cor = e.valor >= 0 ? '#059669' : '#dc2626';
-      const sub = [e.vencida ? `⚠️ venceu em ${_cfBR(e.vencOriginal)}` : t.rot, e.sub, e.terceiros ? '🤝 terceiros' : ''].filter(Boolean).join(' • ');
+      const rotulo = e.realizado ? '✓ realizado' : (e.vencida ? `⚠️ venceu em ${_cfBR(e.vencOriginal)}` : t.rot);
+      const sub = [rotulo, e.sub, e.terceiros ? '🤝 terceiros' : ''].filter(Boolean).join(' • ');
       let clique = '', extra = '';
-      if (e.tipoEv === 'fatura') {
+      if (e.tipoEv === 'fatura' && e.itens) {
         const k = idxFat++;
         clique = `onclick="cfAlternarFatura(${k})"`;
         extra = `<div id="cf-fat-${k}" class="hidden" style="margin:6px 0 0 30px;border-left:2px solid #e2e8f0;padding-left:8px;">
@@ -1983,12 +2022,12 @@ function _cfHtmlLista(d) {
       } else if (e.id) {
         clique = `onclick="editarLancamento('${e.id}')"`;
       }
-      return `<div style="padding:10px 14px;border-bottom:1px solid #f1f5f9;${clique ? 'cursor:pointer;' : ''}" ${clique}>
-        <div style="display:flex;align-items:center;gap:10px;">
+      return `<div style="padding:10px 14px;border-bottom:1px solid #f1f5f9;${clique ? 'cursor:pointer;' : ''}${e.realizado ? 'background:#fcfcfd;' : ''}" ${clique}>
+        <div style="display:flex;align-items:center;gap:10px;${e.realizado ? 'opacity:.8;' : ''}">
           <div style="font-size:20px;">${t.ic}</div>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(e.nome)}${e.tipoEv === 'fatura' ? ' <span style="font-size:11px;color:#94a3b8;">▾</span>' : ''}</div>
-            <div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(sub)}</div>
+            <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(e.nome)}${e.tipoEv === 'fatura' && e.itens ? ' <span style="font-size:11px;color:#94a3b8;">▾</span>' : ''}</div>
+            <div style="font-size:11px;color:${e.realizado ? '#059669' : '#94a3b8'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(sub)}</div>
           </div>
           <div style="text-align:right;white-space:nowrap;">
             <div style="font-size:14px;font-weight:700;color:${cor};">${e.valor >= 0 ? '+' : '−'} ${R$(Math.abs(e.valor))}</div>
