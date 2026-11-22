@@ -333,7 +333,7 @@
         <h2 style="font-size:18px;font-weight:700;margin:0;">Contas a pagar</h2>
         <select id="cf-conta" onchange="cfMudarConta(this.value)" style="width:auto;max-width:55%;padding:6px 10px;font-size:13px;"></select>
       </div>
-      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button type="button" class="cf-chip" data-cf-periodo="anterior" onclick="cfMudarPeriodo('anterior')">Mês anterior</button>
         <button type="button" class="cf-chip cf-chip-on" data-cf-periodo="atual" onclick="cfMudarPeriodo('atual')">Mês atual</button>
         <button type="button" class="cf-chip" data-cf-periodo="proximo" onclick="cfMudarPeriodo('proximo')">Próximo mês</button>
@@ -1411,7 +1411,7 @@ const _FUNCOES_GRAVACAO = ['salvarCategoria','salvarLancamento','salvarLancament
   'salvarCartao','salvarConta','salvarMeta','salvarAporte','salvarHolerite','salvarOrcamento','salvarPercPoupanca','salvarMesesRec',
   'confirmarImportacao','confirmarPagamentoFatura','confirmarAdiarParcelas','confirmarCancelarRecorrencia',
   'confirmarExcluirParcelasDaqui','confirmarRealocacao','criarRegraDoImport','aplicarMes','excluirSelecionados',
-  'cfConfirmarManter','cfIgnorarSugestao'];
+  'cfConfirmarManter','cfIgnorarSugestao','orcIncluirFixo','orcAjustarFixo','orcIncluirTodosFixos'];
 const _gravando = new Set();
 function _protegerCliqueDuplo(nome) {
   const original = window[nome];
@@ -5242,9 +5242,155 @@ function _saldoOrcamento(planejado, gasto) {
     : { rotulo: 'Excedeu', valor: -dif, cor: '#dc2626' };
 }
 
+// ============================================================
+// ORÇAMENTO + CONTAS FIXAS (onda 3)
+// Contas fixas do mês = recorrências ativas (respeitando os meses escolhidos)
+// + parcelas já lançadas no mês. Holerite e dinheiro de terceiros ficam de fora.
+// Na 1ª abertura de um mês atual/futuro, categorias com conta fixa e sem orçamento
+// recebem o valor fixo. Depois disso o mês é do usuário: o app não refaz.
+// ============================================================
+let _orcFixosAnalise = [];
+
+async function _orcFixosDoMes(ano, mes) {
+  if (!recorrencias || !recorrencias.length) await carregarRecorrencias();
+  const holIds = idsCategoriasHolerite();
+  const fora = id => categoriaForaDoControle(id);
+  const nomeCat = id => categorias.find(c => c.id === id)?.nome || '';
+  const itens = [];
+  for (const r of (recorrencias || [])) {
+    if (r.ativa === false || !r.categoria_id) continue;
+    if (Array.isArray(r.meses) && r.meses.length && !r.meses.includes(mes)) continue;
+    if (holIds.has(r.categoria_id) || fora(r.categoria_id)) continue;
+    itens.push({ cat: r.categoria_id, tipo: r.tipo, valor: Number(r.valor), nome: r.favorecidos?.nome || nomeCat(r.categoria_id), origem: 'recorrencia' });
+  }
+  const ini = `${ano}-${String(mes).padStart(2, '0')}-01`;
+  const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDiaDoMes(ano, mes)).padStart(2, '0')}`;
+  const { data: parc } = await sb.from('lancamentos')
+    .select('categoria_id,valor,tipo,descricao,parcela_atual,total_parcelas,recorrencia_id,observacao')
+    .gt('total_parcelas', 1).gte('data', ini).lte('data', fim);
+  for (const l of (parc || [])) {
+    if (l.recorrencia_id || !l.categoria_id || l.tipo === 'transferencia' || l.observacao === '__hol__') continue;
+    if (holIds.has(l.categoria_id) || fora(l.categoria_id)) continue;
+    const sufixo = `(${l.parcela_atual}/${l.total_parcelas})`;
+    itens.push({ cat: l.categoria_id, tipo: l.tipo, valor: Number(l.valor), nome: (l.descricao || '').includes(sufixo) ? l.descricao : `${l.descricao} ${sufixo}`, origem: 'parcela' });
+  }
+  return itens;
+}
+
+// Agrupa por onde o fixo "cai" no orçamento: a própria categoria, ou a categoria-pai
+// quando só o pai tem orçamento (o pai cobre as subcategorias sem valor próprio).
+function _orcAnalisarFixos(itens, orcRows) {
+  const orc = {};
+  (orcRows || []).forEach(o => orc[o.categoria_id] = { id: o.id, valor: Number(o.valor_planejado) });
+  const baldes = {};
+  for (const i of itens) {
+    const c = categorias.find(x => x.id === i.cat);
+    if (!c) continue;
+    const alvo = (!orc[i.cat] && c.parent_id && orc[c.parent_id]) ? c.parent_id : i.cat;
+    const b = baldes[alvo] = baldes[alvo] || { alvo, tipo: i.tipo, fixo: 0, itens: [], viaPai: alvo !== i.cat };
+    b.fixo += i.valor;
+    b.itens.push(i);
+    if (alvo !== i.cat) b.viaPai = true;
+  }
+  return Object.values(baldes).map(b => {
+    const o = orc[b.alvo];
+    b.fixo = Math.round(b.fixo * 100) / 100;
+    b.orcado = o ? o.valor : null;
+    b.orcId = o ? o.id : null;
+    b.status = !o ? 'falta' : (o.valor + 0.004 < b.fixo ? 'abaixo' : 'ok');
+    return b;
+  });
+}
+
+async function _orcAutoPreencher() {
+  const h = new Date();
+  if (anoAtual * 100 + mesAtual < h.getFullYear() * 100 + h.getMonth() + 1) return;   // passado: nunca
+  const { data: feito, error } = await sb.from('orcamento_preenchido').select('id').eq('ano', anoAtual).eq('mes', mesAtual).limit(1);
+  if (error || (feito && feito.length)) return;                                        // sem tabela ou já preenchido
+  const uid = (await sb.auth.getUser()).data.user.id;
+  // Marca primeiro: se dois aparelhos abrirem juntos, só um preenche
+  const { error: eMarca } = await sb.from('orcamento_preenchido').insert({ user_id: uid, ano: anoAtual, mes: mesAtual });
+  if (eMarca) return;
+  const [itens, { data: orcRows }] = await Promise.all([
+    _orcFixosDoMes(anoAtual, mesAtual),
+    sb.from('orcamento').select('id,categoria_id,valor_planejado').eq('mes', mesAtual).eq('ano', anoAtual)
+  ]);
+  const faltam = _orcAnalisarFixos(itens, orcRows).filter(b => b.status === 'falta');
+  if (!faltam.length) return;
+  await sb.from('orcamento').upsert(faltam.map(b => ({ user_id: uid, categoria_id: b.alvo, mes: mesAtual, ano: anoAtual, valor_planejado: b.fixo })),
+    { onConflict: 'user_id,categoria_id,mes,ano', ignoreDuplicates: true });
+  toast(`Orçamento de ${meses[mesAtual - 1]} iniciado com ${faltam.length} conta${faltam.length === 1 ? '' : 's'} fixa${faltam.length === 1 ? '' : 's'}`, 'ok');
+}
+
+async function _orcRenderFixos() {
+  const el = document.getElementById('orcamento-content');
+  if (!el) return;
+  const [itens, { data: orcRows }] = await Promise.all([
+    _orcFixosDoMes(anoAtual, mesAtual),
+    sb.from('orcamento').select('id,categoria_id,valor_planejado').eq('mes', mesAtual).eq('ano', anoAtual)
+  ]);
+  const analise = _orcAnalisarFixos(itens, orcRows);
+  _orcFixosAnalise = analise;
+  if (!analise.length) return;
+  const nomeCat = id => { const c = categorias.find(x => x.id === id); if (!c) return '—'; const p = c.parent_id ? categorias.find(x => x.id === c.parent_id) : null; return `${c.icone || (p?.icone) || '📁'} ${p ? p.nome + ' › ' : ''}${c.nome}`; };
+  const ordem = { falta: 0, abaixo: 1, ok: 2 };
+  analise.sort((a, b) => ordem[a.status] - ordem[b.status] || (a.tipo === 'receita') - (b.tipo === 'receita') || b.fixo - a.fixo);
+  const totD = analise.filter(b => b.tipo !== 'receita').reduce((t, b) => t + b.fixo, 0);
+  const totR = analise.filter(b => b.tipo === 'receita').reduce((t, b) => t + b.fixo, 0);
+  const pend = analise.filter(b => b.status !== 'ok').length;
+  const faltam = analise.filter(b => b.status === 'falta').length;
+  const linha = (b, i) => {
+    const chip = b.status === 'ok' ? `<span style="color:#059669;font-size:12px;font-weight:600;">✓ coberto</span>`
+      : b.status === 'abaixo' ? `<button type="button" onclick="orcAjustarFixo(${i})" style="background:#fef3c7;color:#92400e;border:none;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">Ajustar p/ ${R$(b.fixo)}</button>`
+      : `<button type="button" onclick="orcIncluirFixo(${i})" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">+ Incluir</button>`;
+    const detalhe = b.status === 'falta' ? 'sem orçamento'
+      : `orçado ${R$(b.orcado)}${b.viaPai ? ' (na categoria)' : ''}${b.status === 'abaixo' ? ` · faltam ${R$(b.fixo - b.orcado)}` : ''}`;
+    const nomes = b.itens.map(x => x.nome).filter(Boolean);
+    return `<div style="border-top:1px solid #f1f5f9;padding:9px 0;display:flex;align-items:center;gap:10px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nomeCat(b.alvo)}</div>
+        <div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(nomes.slice(0, 3).join(', '))}${nomes.length > 3 ? ` +${nomes.length - 3}` : ''}</div>
+        <div style="font-size:11px;color:${b.status === 'ok' ? '#64748b' : b.status === 'abaixo' ? '#b45309' : '#4338ca'};">fixo ${R$(b.fixo)} · ${detalhe}</div>
+      </div>
+      <div style="white-space:nowrap;">${chip}</div>
+    </div>`;
+  };
+  const html = `
+    <div class="card" id="orc-fixos" style="padding:14px 14px 6px;margin-bottom:14px;border-left:4px solid ${pend ? '#6366f1' : '#10b981'};">
+      <details ${pend ? 'open' : ''}>
+        <summary style="cursor:pointer;list-style:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span style="font-size:14px;font-weight:700;color:#374151;">📌 Contas fixas de ${meses[mesAtual - 1]}</span>
+            <span style="font-size:12px;font-weight:600;color:${pend ? '#4338ca' : '#059669'};">${pend ? `${pend} a revisar ▾` : 'tudo coberto ✓'}</span>
+          </div>
+          <div style="font-size:12px;color:#64748b;margin:4px 0 8px;">Recorrências e parcelas do mês: saídas <b style="color:#dc2626;">${R$(totD)}</b>${totR ? ` · entradas <b style="color:#059669;">${R$(totR)}</b>` : ''}</div>
+        </summary>
+        ${analise.map(linha).join('')}
+        ${faltam > 1 ? `<div style="padding:8px 0;"><button type="button" class="btn-secondary btn-sm" onclick="orcIncluirTodosFixos()">+ Incluir as ${faltam} sem orçamento</button></div>` : ''}
+      </details>
+    </div>`;
+  document.getElementById('orc-fixos')?.remove();
+  el.insertAdjacentHTML('afterbegin', html);
+}
+
+async function _orcGravarFixos(baldes) {
+  const uid = (await sb.auth.getUser()).data.user.id;
+  const { error } = await sb.from('orcamento').upsert(baldes.map(b => ({ user_id: uid, categoria_id: b.alvo, mes: mesAtual, ano: anoAtual, valor_planejado: b.fixo })),
+    { onConflict: 'user_id,categoria_id,mes,ano' });
+  if (error) { toast('Erro ao salvar o orçamento: ' + error.message, 'erro'); return false; }
+  return true;
+}
+async function orcIncluirFixo(i) { const b = _orcFixosAnalise[i]; if (b && await _orcGravarFixos([b])) { toast('Incluído no orçamento', 'ok'); renderizarOrcamento(); } }
+async function orcAjustarFixo(i) { const b = _orcFixosAnalise[i]; if (b && await _orcGravarFixos([b])) { toast(`Orçamento ajustado para ${R$(b.fixo)}`, 'ok'); renderizarOrcamento(); } }
+async function orcIncluirTodosFixos() {
+  const faltam = _orcFixosAnalise.filter(b => b.status === 'falta');
+  if (faltam.length && await _orcGravarFixos(faltam)) { toast(`${faltam.length} categorias incluídas no orçamento`, 'ok'); renderizarOrcamento(); }
+}
+
 async function renderizarOrcamento() {
   const el = document.getElementById('orcamento-content');
   el.innerHTML = '<div class="spinner"></div>';
+  try { await _orcAutoPreencher(); } catch (e) { console.warn('preenchimento automático', e); }
 
   const dataInicio = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
   const dataFim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
@@ -5548,6 +5694,7 @@ async function renderizarOrcamento() {
   </div>`;
 
   el.innerHTML = (totalMetaRecGeral > 0 || totalPlanDespGeral > 0 ? resumoCard : '') + html || `<div style="text-align:center;padding:40px;color:#94a3b8;">Nenhum orçamento definido.</div>`;
+  _orcRenderFixos().catch(e => console.warn('contas fixas', e));
 }
 
 function atualizarSubcategoriasOrcamento() {
