@@ -48,11 +48,19 @@
     .spinner { border: 3px solid #e2e8f0; border-top: 3px solid #4f46e5; border-radius: 50%; width: 32px; height: 32px; animation: spin 0.8s linear infinite; margin: 40px auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-around; padding: 8px 0 12px; z-index: 40; }
-    .bottom-nav button { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: none; cursor: pointer; font-size: 9px; color: #94a3b8; padding: 4px 4px; }
+    .bottom-nav button { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: none; cursor: pointer; font-size: 9px; color: #94a3b8; padding: 4px 2px; min-width: 0; flex: 1; white-space: nowrap; }
     .bottom-nav button.active { color: #4f46e5; }
     .bottom-nav button span.icon { font-size: 20px; }
     .page { display: none; padding: 16px; padding-bottom: 90px; max-width: 480px; margin: 0 auto; }
     .page.active { display: block; }
+    .cf-chip { background: white; border: 1px solid #e2e8f0; color: #475569; border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .cf-chip.cf-chip-on { background: #4f46e5; border-color: #4f46e5; color: white; font-weight: 600; }
+    .cf-rot { font-size: 11px; color: #64748b; }
+    .cf-val { font-size: 18px; font-weight: 700; }
+    .cf-alerta { margin-top: 10px; border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+    .cf-dia { min-height: 44px; border-radius: 6px; border: 1px solid #f1f5f9; font-size: 12px; text-align: center; padding: 3px 1px; overflow: hidden; }
+    .cf-nav { background: #f1f5f9; border: none; border-radius: 8px; width: 32px; height: 28px; font-size: 18px; cursor: pointer; color: #475569; }
+    .cf-nav:disabled { opacity: .3; cursor: default; }
     /* Barra de ações da tela de Lançamentos: fica presa no topo ao rolar, sem cobrir a lista */
     .lanc-topo { position: sticky; top: var(--topo-app, 0px); z-index: 29; background: #f1f5f9;
                  margin: -16px -16px 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
@@ -318,6 +326,29 @@
     <div id="extrato-conta-content"><div class="spinner"></div></div>
   </div>
 
+  <!-- CONTAS A PAGAR -->
+  <div id="page-contas" class="page">
+    <div style="position:sticky;top:0;z-index:30;background:#f1f5f9;padding-top:4px;padding-bottom:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+        <h2 style="font-size:18px;font-weight:700;margin:0;">Contas a pagar</h2>
+        <select id="cf-conta" onchange="cfMudarConta(this.value)" style="width:auto;max-width:55%;padding:6px 10px;font-size:13px;"></select>
+      </div>
+      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;">
+        <button type="button" class="cf-chip cf-chip-on" data-cf-periodo="1m" onclick="cfMudarPeriodo('1m')">1 mês</button>
+        <button type="button" class="cf-chip" data-cf-periodo="3m" onclick="cfMudarPeriodo('3m')">3 meses</button>
+        <button type="button" class="cf-chip" data-cf-periodo="6m" onclick="cfMudarPeriodo('6m')">6 meses</button>
+        <button type="button" class="cf-chip" data-cf-periodo="1a" onclick="cfMudarPeriodo('1a')">1 ano</button>
+        <button type="button" class="cf-chip" data-cf-periodo="custom" onclick="cfMudarPeriodo('custom')">Período…</button>
+      </div>
+      <div id="cf-custom" class="hidden" style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;">
+        <div style="flex:1;"><label style="font-size:11px;">De</label><input type="date" id="cf-de" style="padding:6px 8px;"></div>
+        <div style="flex:1;"><label style="font-size:11px;">Até</label><input type="date" id="cf-ate" style="padding:6px 8px;"></div>
+        <button type="button" class="btn-primary" style="width:auto;padding:8px 14px;" onclick="cfAplicarCustom()">Ver</button>
+      </div>
+    </div>
+    <div id="cf-conteudo"><div class="spinner"></div></div>
+  </div>
+
   <div id="page-relatorio" class="page">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div>
@@ -386,6 +417,9 @@
     </button>
     <button onclick="navegarPara('extrato')" id="nav-extrato">
       <span class="icon">🏦</span><span>Extrato</span>
+    </button>
+    <button onclick="navegarPara('contas')" id="nav-contas">
+      <span class="icon">📅</span><span>A pagar</span>
     </button>
     <button onclick="navegarPara('relatorio')" id="nav-relatorio">
       <span class="icon">📈</span><span>Relatório</span>
@@ -1517,6 +1551,463 @@ function atualizarHeaderMes() {
 // ============================================================
 // NAVEGAÇÃO
 // ============================================================
+// ============================================================
+// CONTAS A PAGAR — projeção dia a dia do saldo de uma conta
+// Eventos: lançamentos agendados na conta, recorrências ainda não geradas
+// (respeitando os meses escolhidos) e faturas não pagas dos cartões pagos por ela.
+// Mesmas regras do card de fluxo: detalhe de holerite fora; terceiros dentro do saldo.
+// ============================================================
+let cfPeriodo = '1m';          // '1m' | '3m' | '6m' | '1a' | 'custom'
+let cfContaId = null;
+let cfDe = null, cfAte = null; // período personalizado (ISO)
+let cfMesCal = null;           // 'YYYY-MM' exibido no calendário
+let cfDiaSel = null;           // dia tocado no calendário
+let _cfDados = null;
+
+const _MESES_ABREV = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const _DIAS_SEM = ['dom','seg','ter','qua','qui','sex','sáb'];
+
+function _cfIso(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _cfData(iso) { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); }
+function _cfAddDias(iso, n) { const d = _cfData(iso); d.setDate(d.getDate() + n); return _cfIso(d); }
+function _cfAddMeses(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const alvo = new Date(y, m - 1 + n, 1);
+  const ult = ultimoDiaDoMes(alvo.getFullYear(), alvo.getMonth() + 1);
+  return _cfIso(new Date(alvo.getFullYear(), alvo.getMonth(), Math.min(d, ult)));
+}
+function _cfBR(iso) { return iso.slice(8) + '/' + iso.slice(5, 7); }
+function _cfCompacto(v) {
+  const a = Math.abs(v), s = v < 0 ? '−' : '';
+  if (a >= 1000) return s + (a / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil';
+  return s + Math.round(a).toLocaleString('pt-BR');
+}
+function _cfEsc(t) { return String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+
+async function _cfTodos(fabrica) {
+  const out = [];
+  for (let ini = 0; ; ini += 1000) {
+    const { data, error } = await fabrica().range(ini, ini + 999);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+function _cfJanela() {
+  const hoje = _cfIso(new Date());
+  if (cfPeriodo === 'custom' && cfDe && cfAte) {
+    const de = cfDe < hoje ? hoje : cfDe;
+    return { hoje, de, ate: cfAte < de ? de : cfAte };
+  }
+  const n = { '1m': 1, '3m': 3, '6m': 6, '1a': 12 }[cfPeriodo] || 1;
+  return { hoje, de: hoje, ate: _cfAddMeses(hoje, n) };
+}
+
+async function projetarContas(contaId, { hoje, de, ate }) {
+  const conta = contas.find(c => c.id === contaId);
+  if (!recorrencias || !recorrencias.length) await carregarRecorrencias();
+  const principal = idContaPrincipal();
+  const ehPrincipal = contaId === principal;
+  const iniMesAtual = hoje.slice(0, 8) + '01';
+  const [yA, mA] = ate.split('-').map(Number);
+  const fimMesAte = `${ate.slice(0, 8)}${String(ultimoDiaDoMes(yA, mA)).padStart(2, '0')}`;
+  const cartoesConta = (cartoes || []).filter(c => c.ativo !== false &&
+    (c.conta_pagamento_id ? c.conta_pagamento_id === contaId : ehPrincipal));
+
+  const [anteriores, daConta, doCartao, geradas] = await Promise.all([
+    _cfTodos(() => sb.from('lancamentos').select('valor,tipo,observacao').eq('conta_id', contaId).lte('data', hoje).order('id')),
+    _cfTodos(() => sb.from('lancamentos')
+      .select('id,data,descricao,valor,tipo,categoria_id,observacao,recorrencia_id,parcela_atual,total_parcelas,favorecidos(nome),categorias(nome,icone)')
+      .eq('conta_id', contaId).gte('data', iniMesAtual).lte('data', ate).order('id')),
+    cartoesConta.length
+      ? _cfTodos(() => sb.from('lancamentos').select('id,data,descricao,valor,cartao_id,parcela_atual,total_parcelas')
+          .in('cartao_id', cartoesConta.map(c => c.id)).eq('tipo', 'despesa').gte('data', iniMesAtual).lte('data', fimMesAte).order('id'))
+      : Promise.resolve([]),
+    _cfTodos(() => sb.from('lancamentos').select('recorrencia_id,data').not('recorrencia_id', 'is', null)
+      .gte('data', iniMesAtual).lte('data', fimMesAte).order('id'))
+  ]);
+
+  const sinal = l => (l.tipo === 'receita' ? 1 : -1) * Number(l.valor);
+  const saldoHoje = Number(conta?.saldo_inicial || 0) +
+    anteriores.filter(l => l.observacao !== '__hol__').reduce((t, l) => t + sinal(l), 0);
+
+  // Meses de hoje até o mês de "ate"
+  const mesesJanela = [];
+  for (let k = 0; ; k++) {
+    const d = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 1 + k, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (ym > ate.slice(0, 7)) break;
+    mesesJanela.push({ ym, y: d.getFullYear(), m: d.getMonth() + 1 });
+  }
+
+  const eventos = [];
+  const terc = id => typeof categoriaForaDoControle === 'function' && categoriaForaDoControle(id);
+
+  // 1) Lançamentos já agendados na conta
+  for (const l of daConta) {
+    if (l.data <= hoje || l.observacao === '__hol__') continue;
+    const tipoEv = l.observacao === '__pgtofatura__' ? 'pgto' : l.recorrencia_id ? 'recorrencia' : l.total_parcelas > 1 ? 'parcela' : 'agendado';
+    eventos.push({
+      data: l.data, valor: sinal(l), tipoEv, id: l.id,
+      nome: l.descricao || l.favorecidos?.nome || 'Lançamento',
+      sub: [l.categorias?.nome, l.total_parcelas > 1 ? `${l.parcela_atual}/${l.total_parcelas}` : ''].filter(Boolean).join(' • '),
+      terceiros: terc(l.categoria_id)
+    });
+  }
+
+  // 2) Recorrências ainda não geradas
+  const jaGerada = new Set(geradas.map(g => g.recorrencia_id + '|' + g.data.slice(0, 7)));
+  const recNoCartao = {};   // cartao_id|ym → [{nome, valor}]
+  for (const r of (recorrencias || [])) {
+    if (r.ativa === false) continue;
+    const alvoConta = r.conta_id || (r.cartao_id ? null : principal);
+    for (const { ym, y, m } of mesesJanela) {
+      if (Array.isArray(r.meses) && r.meses.length && !r.meses.includes(m)) continue;
+      if (jaGerada.has(r.id + '|' + ym)) continue;
+      const dataR = `${ym}-${String(Math.min(Number(r.dia_do_mes) || 1, 28)).padStart(2, '0')}`;
+      if (dataR < hoje) continue;
+      const nome = r.favorecidos?.nome || r.categorias?.nome || (r.tipo === 'receita' ? 'Receita' : 'Despesa');
+      if (r.cartao_id) {
+        if (!cartoesConta.some(c => c.id === r.cartao_id)) continue;
+        (recNoCartao[r.cartao_id + '|' + ym] = recNoCartao[r.cartao_id + '|' + ym] || []).push({ nome: nome + ' (recorrência)', valor: Number(r.valor) });
+      } else if (alvoConta === contaId && dataR <= ate) {
+        eventos.push({ data: dataR, valor: (r.tipo === 'receita' ? 1 : -1) * Number(r.valor), tipoEv: 'prevista',
+          nome, sub: [r.categorias?.nome, (Array.isArray(r.meses) && r.meses.length && r.meses.length < 12) ? resumoMeses(r.meses) : ''].filter(Boolean).join(' • '), terceiros: terc(r.categoria_id) });
+      }
+    }
+  }
+
+  // 3) Faturas não pagas
+  const pagamentos = daConta.filter(l => l.observacao === '__pgtofatura__');
+  for (const c of cartoesConta) {
+    for (const { ym, y, m } of mesesJanela) {
+      const venc = `${ym}-${String(Math.min(Number(c.dia_vencimento) || 1, ultimoDiaDoMes(y, m))).padStart(2, '0')}`;
+      if (venc > ate) continue;
+      const itens = doCartao.filter(l => l.cartao_id === c.id && l.data.slice(0, 7) === ym)
+        .map(l => ({ nome: l.descricao + (l.total_parcelas > 1 ? ` (${l.parcela_atual}/${l.total_parcelas})` : ''), valor: Number(l.valor), id: l.id }))
+        .concat(recNoCartao[c.id + '|' + ym] || []);
+      const total = itens.reduce((t, i) => t + i.valor, 0);
+      if (total <= 0.004) continue;
+      const ref = `(${meses[m - 1]}/${y})`;
+      if (pagamentos.some(p => (p.descricao || '').includes(c.nome) && (p.descricao || '').includes(ref))) continue;
+      const vencida = venc < hoje;
+      eventos.push({ data: vencida ? hoje : venc, valor: -total, tipoEv: 'fatura', vencida, vencOriginal: venc,
+        nome: `Fatura ${c.nome}`, sub: `${meses[m - 1]}/${y} • ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`, itens: itens.sort((a, b) => b.valor - a.valor) });
+    }
+  }
+
+  // Ordem do dia: entradas antes das saídas (o salário do dia cobre as contas do dia)
+  eventos.sort((a, b) => a.data.localeCompare(b.data) || (b.valor > 0) - (a.valor > 0) || Math.abs(b.valor) - Math.abs(a.valor));
+
+  // Saldo ao fim de cada dia, de hoje até "ate"
+  const porDia = {};
+  eventos.forEach(e => (porDia[e.data] = porDia[e.data] || []).push(e));
+  const dias = [];
+  let saldo = saldoHoje, saldoAntesDe = saldoHoje;
+  for (let d = hoje; d <= ate; d = _cfAddDias(d, 1)) {
+    if (d === de) saldoAntesDe = saldo;
+    const evs = porDia[d] || [];
+    evs.forEach(e => { saldo += e.valor; e.saldoApos = saldo; });
+    dias.push({ data: d, eventos: evs, saldo,
+      entradas: evs.filter(e => e.valor > 0).reduce((t, e) => t + e.valor, 0),
+      saidas: evs.filter(e => e.valor < 0).reduce((t, e) => t - e.valor, 0) });
+  }
+  const janela = dias.filter(d => d.data >= de);
+  const colchao = Number(conta?.colchao_minimo || 0);
+  const menor = janela.reduce((a, b) => (b.saldo < a.saldo ? b : a), janela[0] || { saldo: saldoAntesDe, data: de });
+  return {
+    conta, hoje, de, ate, colchao, saldoHoje, saldoInicio: saldoAntesDe, dias: janela,
+    entradas: janela.reduce((t, d) => t + d.entradas, 0),
+    saidas: janela.reduce((t, d) => t + d.saidas, 0),
+    saldoFinal: janela.length ? janela[janela.length - 1].saldo : saldoAntesDe,
+    menor,
+    primeiroNegativo: janela.find(d => d.saldo < 0),
+    primeiroAbaixoColchao: colchao > 0 ? janela.find(d => d.saldo < colchao) : null,
+    temVencida: eventos.some(e => e.vencida)
+  };
+}
+
+// ---------- Página ----------
+function cfMudarPeriodo(p) {
+  cfPeriodo = p;
+  document.getElementById('cf-custom')?.classList.toggle('hidden', p !== 'custom');
+  if (p === 'custom') {
+    const hoje = _cfIso(new Date());
+    const inpDe = document.getElementById('cf-de'), inpAte = document.getElementById('cf-ate');
+    if (!inpDe.value) inpDe.value = hoje;
+    if (!inpAte.value) inpAte.value = _cfAddMeses(hoje, 2);
+    cfDe = inpDe.value; cfAte = inpAte.value;
+  }
+  cfMesCal = null; cfDiaSel = null;
+  renderizarContasFuturas();
+}
+function cfAplicarCustom() {
+  const de = document.getElementById('cf-de').value, ate = document.getElementById('cf-ate').value;
+  if (!de || !ate) { toast('Informe as duas datas', 'erro'); return; }
+  if (ate < de) { toast('A data final precisa ser depois da inicial', 'erro'); return; }
+  cfDe = de; cfAte = ate; cfMesCal = null; cfDiaSel = null;
+  renderizarContasFuturas();
+}
+function cfMudarConta(id) { cfContaId = id; cfDiaSel = null; renderizarContasFuturas(); }
+
+async function renderizarContasFuturas() {
+  const el = document.getElementById('cf-conteudo');
+  if (!el) return;
+  // Botões de período e conta
+  document.querySelectorAll('[data-cf-periodo]').forEach(b => b.classList.toggle('cf-chip-on', b.dataset.cfPeriodo === cfPeriodo));
+  document.getElementById('cf-custom')?.classList.toggle('hidden', cfPeriodo !== 'custom');
+  const ativas = (contas || []).filter(c => c.ativo !== false);
+  if (!cfContaId || !ativas.some(c => c.id === cfContaId)) cfContaId = idContaPrincipal() || ativas[0]?.id;
+  const sel = document.getElementById('cf-conta');
+  if (sel) sel.innerHTML = ativas.map(c => `<option value="${c.id}" ${c.id === cfContaId ? 'selected' : ''}>${_cfEsc(c.nome)}</option>`).join('');
+  if (!cfContaId) { el.innerHTML = '<div class="card" style="padding:16px;color:#94a3b8;">Cadastre uma conta para ver a projeção.</div>'; return; }
+
+  el.innerHTML = '<div class="spinner"></div>';
+  let d;
+  try { d = await projetarContas(cfContaId, _cfJanela()); }
+  catch (e) { el.innerHTML = `<div class="card" style="padding:16px;color:#dc2626;">Erro ao projetar: ${_cfEsc(e.message || e)}</div>`; return; }
+  _cfDados = d;
+  if (!cfMesCal || cfMesCal < d.de.slice(0, 7) || cfMesCal > d.ate.slice(0, 7)) cfMesCal = d.de.slice(0, 7);
+
+  const cor = v => v < 0 ? '#dc2626' : (d.colchao > 0 && v < d.colchao ? '#b45309' : '#0f766e');
+  let alerta = '';
+  if (d.primeiroNegativo) alerta = `<div class="cf-alerta" style="background:#fee2e2;color:#991b1b;">🔴 Em <b>${_cfBR(d.primeiroNegativo.data)}</b> o saldo fica <b>negativo</b> (${R$(d.primeiroNegativo.saldo)}).</div>`;
+  else if (d.primeiroAbaixoColchao) alerta = `<div class="cf-alerta" style="background:#fef3c7;color:#92400e;">🟡 Em <b>${_cfBR(d.primeiroAbaixoColchao.data)}</b> o saldo fica abaixo do colchão de ${R$(d.colchao)} (${R$(d.primeiroAbaixoColchao.saldo)}).</div>`;
+  else alerta = `<div class="cf-alerta" style="background:#d1fae5;color:#065f46;">🟢 O saldo fica ${d.colchao > 0 ? 'acima do colchão' : 'positivo'} em todo o período.</div>`;
+  if (d.temVencida) alerta += `<div class="cf-alerta" style="background:#fff7ed;color:#9a3412;">⚠️ Há fatura com vencimento passado sem pagamento registrado — ela foi colocada em hoje.</div>`;
+
+  el.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><div class="cf-rot">Saldo ${d.de === d.hoje ? 'hoje' : 'em ' + _cfBR(d.de)}</div><div class="cf-val" style="color:${cor(d.saldoInicio)};">${R$(d.saldoInicio)}</div></div>
+        <div><div class="cf-rot">Saldo em ${_cfBR(d.ate)}</div><div class="cf-val" style="color:${cor(d.saldoFinal)};">${R$(d.saldoFinal)}</div></div>
+        <div><div class="cf-rot">↑ Entradas previstas</div><div class="cf-val" style="font-size:15px;color:#059669;">${R$(d.entradas)}</div></div>
+        <div><div class="cf-rot">↓ Saídas previstas</div><div class="cf-val" style="font-size:15px;color:#dc2626;">${R$(d.saidas)}</div></div>
+      </div>
+      <div style="margin-top:10px;font-size:12px;color:#64748b;">Menor saldo: <b style="color:${cor(d.menor.saldo)};">${R$(d.menor.saldo)}</b> em ${_cfBR(d.menor.data)}${d.colchao > 0 ? ` · colchão ${R$(d.colchao)}` : ''}</div>
+      ${alerta}
+    </div>
+    <div class="card" style="padding:12px 12px 6px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#374151;margin:2px 4px 6px;">📉 Saldo projetado</div>
+      <div id="cf-grafico">${_cfSvgGrafico(d)}</div>
+    </div>
+    <div class="card" style="padding:12px;margin-bottom:12px;" id="cf-calendario">${_cfHtmlCalendario(d)}</div>
+    <div id="cf-lista">${_cfHtmlLista(d)}</div>
+    <p style="font-size:11px;color:#94a3b8;margin:8px 4px 0;">Entram aqui lançamentos agendados, recorrências e faturas dos cartões pagos por esta conta. Gastos do dia a dia sem data (o que ainda resta do orçamento) não entram.</p>`;
+  _cfLigarGrafico();
+}
+
+// ---------- Gráfico (SVG) ----------
+// Zero e colchão só entram na escala quando o saldo chega perto deles;
+// longe disso, o eixo acompanha o saldo e as variações ficam visíveis.
+function _cfReferencias(d) {
+  const menor = Math.min(d.saldoInicio, ...d.dias.map(p => p.saldo));
+  const limite = Math.max(d.colchao || 0, 1) * 2.5;
+  return menor <= limite ? [0, d.colchao || 0] : [];
+}
+function _cfSvgGrafico(d) {
+  const W = 640, H = 210, pl = 56, pr = 10, pt = 12, pb = 24;
+  const pontos = [{ data: d.de, saldo: d.saldoInicio, inicio: true }].concat(d.dias);
+  const valores = pontos.map(p => p.saldo).concat(_cfReferencias(d));
+  let min = Math.min(...valores), max = Math.max(...valores);
+  if (max - min < 1) { max += 1; min -= 1; }
+  const folga = (max - min) * 0.08; min -= folga; max += folga;
+  const n = Math.max(d.dias.length, 1);
+  const x = i => pl + (W - pl - pr) * (i / n);
+  const y = v => pt + (H - pt - pb) * (1 - (v - min) / (max - min));
+  // Linha em degraus: o saldo só muda no dia de cada evento
+  let caminho = `M ${x(0).toFixed(1)} ${y(pontos[0].saldo).toFixed(1)}`;
+  d.dias.forEach((p, i) => { caminho += ` H ${x(i + 1).toFixed(1)} V ${y(p.saldo).toFixed(1)}`; });
+  const area = caminho + ` H ${x(n).toFixed(1)} V ${y(Math.max(min, 0)).toFixed(1)} H ${x(0).toFixed(1)} Z`;
+  const ticks = [max - folga, (max + min) / 2, min + folga].map(v =>
+    `<text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#94a3b8">${_cfCompacto(v)}</text>`).join('');
+  // Marcas de mês
+  let marcas = '';
+  d.dias.forEach((p, i) => {
+    if (p.data.slice(8) === '01' || i === 0) {
+      const [yy, mm] = p.data.split('-').map(Number);
+      marcas += `<line x1="${x(i + 1)}" x2="${x(i + 1)}" y1="${pt}" y2="${H - pb}" stroke="#f1f5f9"/>
+        <text x="${x(i + 1) + 2}" y="${H - 8}" font-size="11" fill="#94a3b8">${i === 0 ? _cfBR(p.data) : _MESES_ABREV[mm - 1] + (mm === 1 ? '/' + String(yy).slice(2) : '')}</text>`;
+    }
+  });
+  const iMenor = d.dias.indexOf(d.menor);
+  const linhaZero = (min < 0 && max > 0) ? `<line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" stroke="#dc2626" stroke-dasharray="4 4" stroke-width="1"/>` : '';
+  const linhaColchao = (d.colchao > min && d.colchao < max) ? `<line x1="${pl}" x2="${W - pr}" y1="${y(d.colchao)}" y2="${y(d.colchao)}" stroke="#f59e0b" stroke-dasharray="6 4" stroke-width="1.2"/>
+    <text x="${W - pr}" y="${y(d.colchao) - 4}" text-anchor="end" font-size="10" fill="#b45309">colchão</text>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;touch-action:pan-y;" id="cf-svg">
+    ${marcas}${ticks}${linhaZero}${linhaColchao}
+    <path d="${area}" fill="#4f46e5" fill-opacity="0.07"/>
+    <path d="${caminho}" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round"/>
+    ${iMenor >= 0 ? `<circle cx="${x(iMenor + 1)}" cy="${y(d.menor.saldo)}" r="4" fill="${d.menor.saldo < 0 ? '#dc2626' : '#f59e0b'}" stroke="white" stroke-width="1.5"/>` : ''}
+    <g id="cf-cursor" style="display:none;">
+      <line id="cf-cur-l" y1="${pt}" y2="${H - pb}" stroke="#64748b" stroke-width="1"/>
+      <circle id="cf-cur-c" r="4" fill="#4f46e5" stroke="white" stroke-width="1.5"/>
+      <rect id="cf-cur-bg" height="34" rx="6" fill="#1e293b"/>
+      <text id="cf-cur-t1" font-size="11" fill="#cbd5e1"></text>
+      <text id="cf-cur-t2" font-size="12" font-weight="700" fill="white"></text>
+    </g>
+    <rect x="${pl}" y="${pt}" width="${W - pl - pr}" height="${H - pt - pb}" fill="transparent" id="cf-alvo"/>
+  </svg>`;
+}
+
+function _cfLigarGrafico() {
+  const svg = document.getElementById('cf-svg'), d = _cfDados;
+  if (!svg || !d) return;
+  const W = 640, H = 210, pl = 56, pr = 10, pt = 12, pb = 24;
+  const valores = [d.saldoInicio].concat(d.dias.map(p => p.saldo), _cfReferencias(d));
+  let min = Math.min(...valores), max = Math.max(...valores);
+  if (max - min < 1) { max += 1; min -= 1; }
+  const folga = (max - min) * 0.08; min -= folga; max += folga;
+  const n = Math.max(d.dias.length, 1);
+  const y = v => pt + (H - pt - pb) * (1 - (v - min) / (max - min));
+  const g = document.getElementById('cf-cursor');
+  const mover = ev => {
+    const r = svg.getBoundingClientRect();
+    const px = ((ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left) * (W / r.width);
+    const i = Math.min(n - 1, Math.max(0, Math.floor((px - pl) / ((W - pl - pr) / n))));
+    const p = d.dias[i]; if (!p) return;
+    const cx = pl + (W - pl - pr) * ((i + 1) / n), cy = y(p.saldo);
+    g.style.display = '';
+    document.getElementById('cf-cur-l').setAttribute('x1', cx); document.getElementById('cf-cur-l').setAttribute('x2', cx);
+    const c = document.getElementById('cf-cur-c'); c.setAttribute('cx', cx); c.setAttribute('cy', cy);
+    const t1 = `${_DIAS_SEM[_cfData(p.data).getDay()]}, ${_cfBR(p.data)}${p.eventos.length ? ' · ' + p.eventos.length + ' item(ns)' : ''}`;
+    const t2 = R$(p.saldo);
+    const larg = Math.max(t1.length * 6, t2.length * 7.5) + 16;
+    const bx = Math.min(Math.max(cx - larg / 2, pl), W - pr - larg), by = Math.max(pt, cy - 46);
+    const bg = document.getElementById('cf-cur-bg'); bg.setAttribute('x', bx); bg.setAttribute('y', by); bg.setAttribute('width', larg);
+    const e1 = document.getElementById('cf-cur-t1'); e1.setAttribute('x', bx + 8); e1.setAttribute('y', by + 14); e1.textContent = t1;
+    const e2 = document.getElementById('cf-cur-t2'); e2.setAttribute('x', bx + 8); e2.setAttribute('y', by + 28); e2.textContent = t2;
+  };
+  const alvo = document.getElementById('cf-alvo');
+  alvo.addEventListener('mousemove', mover);
+  alvo.addEventListener('touchstart', mover, { passive: true });
+  alvo.addEventListener('touchmove', mover, { passive: true });
+  alvo.addEventListener('mouseleave', () => { g.style.display = 'none'; });
+  alvo.addEventListener('click', ev => {
+    const r = svg.getBoundingClientRect();
+    const px = (ev.clientX - r.left) * (W / r.width);
+    const i = Math.min(n - 1, Math.max(0, Math.floor((px - pl) / ((W - pl - pr) / n))));
+    if (d.dias[i]) cfSelecionarDia(d.dias[i].data);
+  });
+}
+
+// ---------- Calendário ----------
+function cfMesCalendario(delta) {
+  const [y, m] = cfMesCal.split('-').map(Number);
+  const t = new Date(y, m - 1 + delta, 1);
+  const ym = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`;
+  if (ym < _cfDados.de.slice(0, 7) || ym > _cfDados.ate.slice(0, 7)) return;
+  cfMesCal = ym;
+  document.getElementById('cf-calendario').innerHTML = _cfHtmlCalendario(_cfDados);
+}
+
+function _cfHtmlCalendario(d) {
+  const [y, m] = cfMesCal.split('-').map(Number);
+  const porData = {};
+  d.dias.forEach(p => porData[p.data] = p);
+  const primeiro = new Date(y, m - 1, 1).getDay();
+  const ult = ultimoDiaDoMes(y, m);
+  const podeAnt = cfMesCal > d.de.slice(0, 7), podeProx = cfMesCal < d.ate.slice(0, 7);
+  const maiorSaida = Math.max(1, ...d.dias.map(p => p.saidas));
+  let cel = _DIAS_SEM.map(s => `<div style="font-size:10px;color:#94a3b8;text-align:center;padding:2px 0;">${s}</div>`).join('');
+  for (let i = 0; i < primeiro; i++) cel += '<div></div>';
+  for (let dia = 1; dia <= ult; dia++) {
+    const iso = `${cfMesCal}-${String(dia).padStart(2, '0')}`;
+    const p = porData[iso];
+    if (!p) { cel += `<div class="cf-dia" style="color:#cbd5e1;background:#fafafa;">${dia}</div>`; continue; }
+    const fundo = p.saldo < 0 ? '#fee2e2' : (d.colchao > 0 && p.saldo < d.colchao ? '#fef3c7' : 'white');
+    const peso = p.saidas > 0 ? 0.25 + 0.75 * (p.saidas / maiorSaida) : 0;
+    const borda = p.saidas > 0 ? `box-shadow:inset 0 -3px 0 rgba(220,38,38,${peso.toFixed(2)});` : '';
+    const sel = cfDiaSel === iso ? 'outline:2px solid #4f46e5;outline-offset:-2px;' : '';
+    const hoje = iso === d.hoje ? 'font-weight:800;color:#4f46e5;' : '';
+    cel += `<div class="cf-dia" onclick="cfSelecionarDia('${iso}')" style="background:${fundo};${borda}${sel}cursor:pointer;">
+      <div style="${hoje}">${dia}</div>
+      ${p.saidas > 0 ? `<div style="font-size:9px;color:#dc2626;line-height:1.1;">−${_cfCompacto(p.saidas)}</div>` : ''}
+      ${p.entradas > 0 ? `<div style="font-size:9px;color:#059669;line-height:1.1;">+${_cfCompacto(p.entradas)}</div>` : ''}
+    </div>`;
+  }
+  return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <button type="button" onclick="cfMesCalendario(-1)" class="cf-nav" ${podeAnt ? '' : 'disabled'}>‹</button>
+      <div style="font-weight:700;font-size:14px;">📅 ${meses[m - 1]} ${y}</div>
+      <button type="button" onclick="cfMesCalendario(1)" class="cf-nav" ${podeProx ? '' : 'disabled'}>›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">${cel}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:#64748b;margin-top:8px;">
+      <span><span style="display:inline-block;width:10px;height:10px;background:#fef3c7;border-radius:2px;"></span> abaixo do colchão</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#fee2e2;border-radius:2px;"></span> saldo negativo</span>
+      <span><span style="display:inline-block;width:10px;height:3px;background:#dc2626;vertical-align:middle;"></span> mais forte = dia mais pesado</span>
+    </div>`;
+}
+
+function cfSelecionarDia(iso) {
+  cfDiaSel = cfDiaSel === iso ? null : iso;
+  if (cfDiaSel) cfMesCal = iso.slice(0, 7);
+  document.getElementById('cf-calendario').innerHTML = _cfHtmlCalendario(_cfDados);
+  document.getElementById('cf-lista').innerHTML = _cfHtmlLista(_cfDados);
+  if (cfDiaSel) document.getElementById('cf-dia-' + cfDiaSel)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---------- Lista por data ----------
+const _CF_TIPOS = {
+  fatura: { ic: '💳', rot: 'Fatura' }, prevista: { ic: '🔁', rot: 'Recorrência prevista' },
+  recorrencia: { ic: '🔁', rot: 'Recorrência' }, parcela: { ic: '🧾', rot: 'Parcela' },
+  agendado: { ic: '📅', rot: 'Agendado' }, pgto: { ic: '💳', rot: 'Pagamento de fatura agendado' }
+};
+
+function cfAlternarFatura(idx) {
+  const box = document.getElementById('cf-fat-' + idx);
+  if (box) box.classList.toggle('hidden');
+}
+
+function _cfHtmlLista(d) {
+  const comEventos = d.dias.filter(p => p.eventos.length);
+  if (!comEventos.length) return `<div class="card" style="padding:16px;font-size:13px;color:#94a3b8;">Nada previsto neste período.</div>`;
+  let idxFat = 0;
+  return comEventos.map(p => {
+    const dt = _cfData(p.data);
+    const corS = p.saldo < 0 ? '#dc2626' : (d.colchao > 0 && p.saldo < d.colchao ? '#b45309' : '#64748b');
+    const itens = p.eventos.map(e => {
+      const t = _CF_TIPOS[e.tipoEv] || _CF_TIPOS.agendado;
+      const cor = e.valor >= 0 ? '#059669' : '#dc2626';
+      const sub = [e.vencida ? `⚠️ venceu em ${_cfBR(e.vencOriginal)}` : t.rot, e.sub, e.terceiros ? '🤝 terceiros' : ''].filter(Boolean).join(' • ');
+      let clique = '', extra = '';
+      if (e.tipoEv === 'fatura') {
+        const k = idxFat++;
+        clique = `onclick="cfAlternarFatura(${k})"`;
+        extra = `<div id="cf-fat-${k}" class="hidden" style="margin:6px 0 0 30px;border-left:2px solid #e2e8f0;padding-left:8px;">
+          ${e.itens.map(i => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#475569;padding:2px 0;">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_cfEsc(i.nome)}</span><span style="white-space:nowrap;">${R$(i.valor)}</span></div>`).join('')}
+        </div>`;
+      } else if (e.id) {
+        clique = `onclick="editarLancamento('${e.id}')"`;
+      }
+      return `<div style="padding:10px 14px;border-bottom:1px solid #f1f5f9;${clique ? 'cursor:pointer;' : ''}" ${clique}>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="font-size:20px;">${t.ic}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(e.nome)}${e.tipoEv === 'fatura' ? ' <span style="font-size:11px;color:#94a3b8;">▾</span>' : ''}</div>
+            <div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_cfEsc(sub)}</div>
+          </div>
+          <div style="text-align:right;white-space:nowrap;">
+            <div style="font-size:14px;font-weight:700;color:${cor};">${e.valor >= 0 ? '+' : '−'} ${R$(Math.abs(e.valor))}</div>
+            <div style="font-size:10px;color:#94a3b8;">saldo ${R$(e.saldoApos)}</div>
+          </div>
+        </div>${extra}
+      </div>`;
+    }).join('');
+    return `<div id="cf-dia-${p.data}" style="scroll-margin-top:120px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;font-weight:600;margin:14px 2px 6px;color:${cfDiaSel === p.data ? '#4f46e5' : '#94a3b8'};">
+        <span>${_DIAS_SEM[dt.getDay()].toUpperCase()}, ${_cfBR(p.data)}${p.data === d.hoje ? ' · HOJE' : ''}</span>
+        <span style="color:${corS};">saldo ${R$(p.saldo)}</span>
+      </div>
+      <div class="card" style="${cfDiaSel === p.data ? 'box-shadow:0 0 0 2px #4f46e5;' : ''}">${itens}</div>
+    </div>`;
+  }).join('');
+}
+
+
 function navegarPara(pagina) {
   if (typeof _selLanc !== 'undefined' && _selLanc && pagina !== 'lancamentos') alternarSelecaoLanc(false);
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1532,6 +2023,7 @@ function navegarPara(pagina) {
   if (pagina === 'poupanca') renderizarPoupanca();
   if (pagina === 'relatorio') renderizarRelatorio();
   if (pagina === 'extrato') renderizarExtrato();
+  if (pagina === 'contas') renderizarContasFuturas();
   if (pagina === 'config') renderizarConfig();
 }
 
@@ -3516,6 +4008,7 @@ async function salvarLancamentoRateio() {
   fecharModal('modal-lancamento');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
   if (paginaAtual === 'relatorio') renderizarRelatorio();
@@ -3664,6 +4157,7 @@ async function salvarLancamento() {
   fecharModal('modal-lancamento');
   if (paginaAtual === 'lancamentos') await renderizarLancamentos({ destacarId: idDestaque });
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
   if (paginaAtual === 'cartoes') renderizarCartoes();
@@ -3769,6 +4263,7 @@ async function confirmarAdiarParcelas() {
   toast(`${qtd} parcela(s) ${adiar ? 'adiada(s)' : 'antecipada(s)'} em 1 mês`, 'ok');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
   if (paginaAtual === 'cartoes') renderizarCartoes();
@@ -3843,6 +4338,7 @@ async function confirmarExcluirParcelasDaqui() {
   toast('Parcelas excluídas', 'ok');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
   if (paginaAtual === 'cartoes') renderizarCartoes();
@@ -3864,6 +4360,7 @@ async function excluirLancamento() {
   fecharModal('modal-lancamento');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'orcamento') renderizarOrcamento();
   if (paginaAtual === 'cartoes') renderizarCartoes();
@@ -4376,6 +4873,7 @@ async function confirmarImportacao(total) {
   fecharModal('modal-importar');
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato();
 }
 
@@ -4567,10 +5065,17 @@ async function renderizarOrcamento() {
       const editClick = pai ? `onclick="editarOrcamento('${pai.id}','${pai.categoria_id}',${pai.valor_planejado})"` : '';
       const faltando = Math.max(0, metaTotal - recTotal);
 
-      html += `<div class="card" style="padding:18px;margin-bottom:14px;${pai ? 'cursor:pointer;' : ''}" ${editClick}>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <div style="font-weight:700;font-size:16px;">${catInfo?.icone || '📁'} ${catInfo?.nome}</div>
-          <div class="${pctReal >= 100 ? 'badge-verde' : pctReal >= 60 ? 'badge-amarelo' : 'badge-vermelho'}">${Math.round(pctReal)}%</div>
+      const editarPaiRec = pai
+        ? `editarOrcamento('${pai.id}','${pai.categoria_id}',${pai.valor_planejado})`
+        : `abrirModalOrcamento('${catInfo?.id}','')`;
+      html += `<div class="card" style="padding:18px;margin-bottom:14px;">
+        <div style="cursor:pointer;" onclick="alternarDetalheOrc(this,'${catInfo?.id}',true,'receita')">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:16px;">${catInfo?.icone || '📁'} ${catInfo?.nome} <span class="orc-seta" style="font-size:11px;color:#94a3b8;">▸</span></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button type="button" title="Editar orçamento" onclick="event.stopPropagation();${editarPaiRec}" style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:2px 7px;font-size:12px;cursor:pointer;color:#64748b;">✏️</button>
+            <div class="${pctReal >= 100 ? 'badge-verde' : pctReal >= 60 ? 'badge-amarelo' : 'badge-vermelho'}">${Math.round(pctReal)}%</div>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:12px;">
           <div><div style="font-size:11px;color:#64748b;">Recebido</div><div style="font-weight:700;color:#059669;">${R$(recTotal)}</div></div>
@@ -4579,6 +5084,7 @@ async function renderizarOrcamento() {
         </div>
         <div class="progress-bar">
           <div class="progress-fill" style="width:${pct}%;background:#10b981;"></div>
+        </div>
         </div>`;
 
       if (subsUnificadasRec.length > 0) {
@@ -4587,13 +5093,13 @@ async function renderizarOrcamento() {
           const recS = receitasPorCat[s.categoria_id] || 0;
           const pctS = s.valor_planejado > 0 ? Math.min((recS / s.valor_planejado) * 100, 100) : 0;
           const pctSReal = s.valor_planejado > 0 ? (recS / s.valor_planejado) * 100 : 0;
-          const clickS = s.id
-            ? `onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')"`
-            : `onclick="abrirModalOrcamento('${s.categoria_id}','')"`;
+          const editarSubRec = s.id
+            ? `editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')`
+            : `abrirModalOrcamento('${s.categoria_id}','')`;
           html += `
-            <div style="cursor:pointer;padding:10px 12px;background:#f0fdf4;border-radius:8px;" ${clickS}>
+            <div style="cursor:pointer;padding:10px 12px;background:#f0fdf4;border-radius:8px;" onclick="alternarDetalheOrc(this,'${s.categoria_id}',false,'receita')">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome}</div>
+                <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome} <span class="orc-seta" style="font-size:10px;color:#94a3b8;">▸</span></div>
                 <div style="font-size:11px;font-weight:600;color:${s.valor_planejado > 0 ? (pctSReal>=100?'#059669':pctSReal>=60?'#f59e0b':'#dc2626') : '#94a3b8'};">
                   ${s.valor_planejado > 0 ? Math.round(pctSReal) + '%' : 'sem orçamento'}
                 </div>
@@ -4604,7 +5110,7 @@ async function renderizarOrcamento() {
               </div>` : ''}
               <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;">
                 <span style="color:#059669;font-weight:600;">${R$(recS)}</span>
-                <span>${s.valor_planejado > 0 ? R$(s.valor_planejado) : '+ definir orçamento'}</span>
+                <span onclick="event.stopPropagation();${editarSubRec}" title="Editar orçamento" style="cursor:pointer;text-decoration:underline dotted;">${s.valor_planejado > 0 ? R$(s.valor_planejado) + ' ✏️' : '+ definir orçamento'}</span>
               </div>
             </div>`;
         });
@@ -4674,14 +5180,18 @@ async function renderizarOrcamento() {
       const nomeExibido = `${catInfo?.icone || '📁'} ${catInfo?.nome}`;
       const badgeClass = pctReal > 100 ? 'badge-vermelho' : pctReal >= 80 ? 'badge-amarelo' : 'badge-verde';
 
+      const editarPai = pai
+        ? `editarOrcamento('${pai.id}','${pai.categoria_id}',${pai.valor_planejado})`
+        : `abrirModalOrcamento('${parentCatId}','')`;
       htmlDesp += `<div class="card" style="padding:16px;margin-bottom:12px;">`;
-      htmlDesp += pai
-        ? `<div style="cursor:pointer;" onclick="editarOrcamento('${pai.id}','${pai.categoria_id}',${pai.valor_planejado})">`
-        : `<div>`;
+      htmlDesp += `<div style="cursor:pointer;" onclick="alternarDetalheOrc(this,'${parentCatId}',true,'despesa')">`;
       htmlDesp += `
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-          <div style="font-weight:700;font-size:15px;">${nomeExibido}</div>
-          <div class="${badgeClass}">${Math.round(pctReal)}%</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+          <div style="font-weight:700;font-size:15px;">${nomeExibido} <span class="orc-seta" style="font-size:11px;color:#94a3b8;">▸</span></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button type="button" title="Editar orçamento" onclick="event.stopPropagation();${editarPai}" style="background:none;border:1px solid #e2e8f0;border-radius:6px;padding:2px 7px;font-size:12px;cursor:pointer;color:#64748b;">✏️</button>
+            <div class="${badgeClass}">${Math.round(pctReal)}%</div>
+          </div>
         </div>
         <div class="progress-bar" style="margin-bottom:8px;">
           <div class="progress-fill" style="width:${pct}%;background:${cor};"></div>
@@ -4701,13 +5211,13 @@ async function renderizarOrcamento() {
           const pctS = s.valor_planejado > 0 ? Math.min((gastoS / s.valor_planejado) * 100, 100) : 0;
           const pctSReal = s.valor_planejado > 0 ? (gastoS / s.valor_planejado) * 100 : 0;
           const corS = progressCor(pctSReal);
-          const clickSub = s.id
-            ? `onclick="editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')"`
-            : `onclick="abrirModalOrcamento('${s.categoria_id}','')"`;
+          const editarSub = s.id
+            ? `editarOrcamento('${s.id}','${s.categoria_id}',${s.valor_planejado},'${s.categorias?.parent_id}')`
+            : `abrirModalOrcamento('${s.categoria_id}','')`;
           htmlDesp += `
-            <div style="cursor:pointer;padding:10px 12px;background:#f8fafc;border-radius:8px;" ${clickSub}>
+            <div style="cursor:pointer;padding:10px 12px;background:#f8fafc;border-radius:8px;" onclick="alternarDetalheOrc(this,'${s.categoria_id}',false,'despesa')">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome}</div>
+                <div style="font-size:13px;color:#475569;">↳ ${s.categorias?.icone || '📁'} ${s.categorias?.nome} <span class="orc-seta" style="font-size:10px;color:#94a3b8;">▸</span></div>
                 <div style="font-size:11px;font-weight:600;color:${s.valor_planejado > 0 ? corS : '#94a3b8'};">
                   ${s.valor_planejado > 0 ? Math.round(pctSReal) + '%' : 'sem orçamento'}
                 </div>
@@ -4720,7 +5230,7 @@ async function renderizarOrcamento() {
                 <span style="color:${gastoS > 0 ? corS : '#94a3b8'};font-weight:600;">${R$(gastoS)}</span>
                 ${s.valor_planejado > 0 ? (() => { const sd = _saldoOrcamento(s.valor_planejado, gastoS);
                   return `<span style="color:${sd.cor};font-weight:600;">${sd.rotulo === 'Excedeu' ? 'excedeu' : 'resta'} ${R$(sd.valor)}</span>`; })() : ''}
-                <span>${s.valor_planejado > 0 ? R$(s.valor_planejado) : '+ definir orçamento'}</span>
+                <span onclick="event.stopPropagation();${editarSub}" title="Editar orçamento" style="cursor:pointer;text-decoration:underline dotted;">${s.valor_planejado > 0 ? R$(s.valor_planejado) + ' ✏️' : '+ definir orçamento'}</span>
               </div>
             </div>`;
         });
@@ -4803,6 +5313,57 @@ function atualizarSubcategoriasOrcamento() {
     subSel.appendChild(opt);
   });
   subGroup.classList.remove('hidden');
+}
+
+// ============================================================
+// ORÇAMENTO: clique abre os lançamentos da categoria/subcategoria no mês
+// Mesmos critérios dos totais: sem detalhe de holerite e sem dinheiro de terceiros.
+// ============================================================
+async function alternarDetalheOrc(el, catId, incluirSubs, tipo) {
+  const seta = el.querySelector('.orc-seta');
+  const prox = el.nextElementSibling;
+  if (prox && prox.classList.contains('orc-detalhe')) {
+    prox.remove();
+    if (seta) seta.textContent = '▸';
+    return;
+  }
+  const box = document.createElement('div');
+  box.className = 'orc-detalhe';
+  box.style.cssText = 'margin:8px 0 4px;border:1px solid #e2e8f0;border-radius:10px;background:white;overflow:hidden;';
+  box.innerHTML = '<div style="padding:12px;font-size:12px;color:#94a3b8;">Carregando…</div>';
+  el.insertAdjacentElement('afterend', box);
+  if (seta) seta.textContent = '▾';
+
+  const ids = [catId].concat(incluirSubs ? categorias.filter(c => c.parent_id === catId).map(c => c.id) : []);
+  const ini = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-01`;
+  const fim = `${anoAtual}-${String(mesAtual).padStart(2,'0')}-${String(ultimoDiaDoMes(anoAtual, mesAtual)).padStart(2,'0')}`;
+  const { data, error } = await sb.from('lancamentos')
+    .select('id, data, descricao, valor, tipo, categoria_id, observacao, parcela_atual, total_parcelas, favorecidos(nome), cartoes(nome), contas(nome)')
+    .in('categoria_id', ids).eq('tipo', tipo).gte('data', ini).lte('data', fim)
+    .order('data', { ascending: false });
+  if (error) { box.innerHTML = `<div style="padding:12px;font-size:12px;color:#dc2626;">Erro: ${error.message}</div>`; return; }
+  const lista = (data || []).filter(l => !foraDoMes(l));
+  if (!lista.length) {
+    box.innerHTML = `<div style="padding:12px;font-size:12px;color:#94a3b8;">Nenhum lançamento em ${meses[mesAtual - 1]}.</div>`;
+    return;
+  }
+  const nomeSub = id => (incluirSubs && id !== catId) ? (categorias.find(c => c.id === id)?.nome || '') : '';
+  const cor = tipo === 'receita' ? '#059669' : '#dc2626';
+  const total = lista.reduce((t, l) => t + Number(l.valor), 0);
+  box.innerHTML = lista.map(l => {
+    const origem = l.cartoes?.nome || l.contas?.nome || '';
+    const detalhe = [nomeSub(l.categoria_id), l.favorecidos?.nome && l.favorecidos.nome !== l.descricao ? l.favorecidos.nome : '', origem,
+      l.total_parcelas > 1 ? `${l.parcela_atual}/${l.total_parcelas}` : ''].filter(Boolean).join(' • ');
+    return `<div onclick="event.stopPropagation();editarLancamento('${l.id}')" style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;">
+      <div style="min-width:0;flex:1;">
+        <div style="font-size:13px;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="color:#94a3b8;">${l.data.slice(8)}/${l.data.slice(5,7)}</span> ${l.descricao}</div>
+        ${detalhe ? `<div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${detalhe}</div>` : ''}
+      </div>
+      <div style="font-size:13px;font-weight:600;color:${cor};white-space:nowrap;">${R$(l.valor)}</div>
+    </div>`;
+  }).join('') + `<div style="display:flex;justify-content:space-between;padding:8px 12px;background:#f8fafc;font-size:12px;">
+      <span style="color:#64748b;">${lista.length} lançamento${lista.length === 1 ? '' : 's'}</span>
+      <b style="color:${cor};">${R$(total)}</b></div>`;
 }
 
 function abrirModalOrcamento(catId = '', valor = '') {
@@ -5635,6 +6196,7 @@ async function salvarConta() {
   await carregarContas();
   fecharModal('modal-conta');
   if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato();
 }
 
@@ -5646,6 +6208,7 @@ async function excluirConta() {
   toast('Conta removida', 'ok');
   fecharModal('modal-conta');
   if (paginaAtual === 'config') renderizarConfig();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato();
 }
 
@@ -6167,6 +6730,7 @@ async function definirColchao(contaId) {
   if (error) { toast('Não foi possível salvar o colchão. A coluna colchao_minimo já foi criada no banco?', 'erro'); return; }
   toast('Colchão mínimo salvo', 'ok');
   await carregarContas();
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato({ preservarScroll: true });
   if (paginaAtual === 'dashboard') renderizarDashboard();
 }
@@ -6444,6 +7008,7 @@ async function confirmarPagamentoFatura() {
   toast('Pagamento registrado no Extrato!', 'ok');
   fecharModal('modal-pagar-fatura');
   fecharModal('modal-fatura');
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato();
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
@@ -6453,6 +7018,7 @@ async function excluirPagamentoFatura(id) {
   if (!confirm('Excluir este pagamento de fatura? As compras lançadas não são afetadas.')) return;
   await sb.from('lancamentos').delete().eq('id', id);
   toast('Pagamento excluído', 'ok');
+  if (paginaAtual === 'contas') renderizarContasFuturas();
   if (paginaAtual === 'extrato') renderizarExtrato();
   if (paginaAtual === 'lancamentos') renderizarLancamentos();
   if (paginaAtual === 'dashboard') renderizarDashboard();
